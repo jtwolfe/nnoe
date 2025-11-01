@@ -1,0 +1,25 @@
+# phpIPAM with NNOE Plugin
+
+FROM phpipam/phpipam:latest
+
+# Install PHP dependencies for NNOE plugin
+RUN apt-get update && apt-get install -y \
+    php-guzzlehttp-guzzle \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy NNOE plugin
+COPY integrations/phpipam-plugin/src/ /var/www/html/plugins/nnoe/
+COPY integrations/phpipam-plugin/etc/ /var/www/html/plugins/nnoe/etc/
+
+# Set permissions
+RUN chown -R www-data:www-data /var/www/html/plugins/nnoe
+
+# Environment variables
+ENV NNOE_ENABLED=true
+
+# Default configuration
+RUN if [ ! -f /var/www/html/plugins/nnoe/etc/nnoe-config.php ]; then \
+    cp /var/www/html/plugins/nnoe/etc/nnoe-config.php.example \
+       /var/www/html/plugins/nnoe/etc/nnoe-config.php; \
+    fi
+

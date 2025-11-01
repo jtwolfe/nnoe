@@ -1,0 +1,7 @@
+---
+- name: restart nnoe-agent
+  systemd:
+    name: nnoe-agent
+    state: restarted
+    daemon_reload: yes
+

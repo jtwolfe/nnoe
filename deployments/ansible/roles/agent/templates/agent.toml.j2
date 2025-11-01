@@ -1,0 +1,32 @@
+[node]
+name = "{{ inventory_hostname }}"
+role = "{{ nnoe_node_role | default('active') }}"
+
+[etcd]
+endpoints = {{ etcd_endpoints | default(['http://127.0.0.1:2379']) | to_json }}
+prefix = "{{ etcd_prefix | default('/nnoe') }}"
+timeout_secs = 5
+
+[cache]
+path = "{{ nnoe_home }}/cache"
+default_ttl_secs = 300
+max_size_mb = 100
+
+[nebula]
+enabled = {{ nebula_enabled | default(false) }}
+
+[services.dns]
+enabled = {{ dns_enabled | default(true) }}
+engine = "knot"
+config_path = "/etc/knot/knot.conf"
+zone_dir = "/var/lib/knot/zones"
+
+[services.dhcp]
+enabled = {{ dhcp_enabled | default(true) }}
+engine = "kea"
+config_path = "/etc/kea/kea-dhcp4.conf"
+
+[logging]
+level = "{{ log_level | default('info') }}"
+json = false
+

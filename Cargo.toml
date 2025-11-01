@@ -2,6 +2,7 @@
 members = [
     "agent",
     "integrations/misp-sync",
+    "testing/performance/benchmarks",
 ]
 resolver = "2"
 
@@ -58,6 +59,7 @@ chrono = { version = "0.4", features = ["serde"] }
 # Testing
 mockall = "0.12"
 testcontainers = "0.16"
+criterion = { version = "0.5", features = ["html_reports"] }
 
 [workspace.lints.rust]
 unsafe_code = "forbid"

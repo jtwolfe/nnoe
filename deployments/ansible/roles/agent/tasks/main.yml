@@ -1,0 +1,49 @@
+---
+- name: Check if Rust is installed
+  command: which cargo
+  register: rust_installed
+  failed_when: false
+  changed_when: false
+
+- name: Install Rust toolchain
+  shell: curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+  when: rust_installed.rc != 0
+
+- name: Build NNOE agent
+  shell: |
+    source $HOME/.cargo/env
+    cd /tmp
+    git clone https://github.com/nnoe/nnoe.git || true
+    cd nnoe
+    cargo build --release --package nnoe-agent
+  when: nnoe_build | default(true)
+
+- name: Install NNOE agent binary
+  copy:
+    src: /tmp/nnoe/target/release/nnoe-agent
+    dest: /usr/local/bin/nnoe-agent
+    mode: '0755'
+    remote_src: yes
+  when: nnoe_build | default(true)
+
+- name: Create agent configuration
+  template:
+    src: agent.toml.j2
+    dest: /etc/nnoe/agent.toml
+    mode: '0644'
+  notify: restart nnoe-agent
+
+- name: Create systemd service for agent
+  template:
+    src: nnoe-agent.service.j2
+    dest: /etc/systemd/system/nnoe-agent.service
+    mode: '0644'
+  notify: restart nnoe-agent
+
+- name: Enable and start NNOE agent
+  systemd:
+    name: nnoe-agent
+    enabled: yes
+    state: started
+    daemon_reload: yes
+

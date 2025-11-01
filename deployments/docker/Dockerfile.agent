@@ -1,0 +1,52 @@
+# Multi-stage build for NNOE Agent
+
+FROM rust:1.70 as builder
+
+WORKDIR /app
+
+# Copy workspace files
+COPY Cargo.toml Cargo.lock ./
+COPY agent/ ./agent/
+COPY integrations/misp-sync/ ./integrations/misp-sync/
+
+# Build dependencies first (caching layer)
+RUN cargo build --release --package nnoe-agent || \
+    (cargo build --package nnoe-agent --release)
+
+# Final stage
+FROM debian:bullseye-slim
+
+LABEL maintainer="NNOE Contributors"
+LABEL description="NNOE Agent - Distributed DDI orchestration agent"
+
+# Install runtime dependencies
+RUN apt-get update && apt-get install -y \
+    ca-certificates \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Create nnoe user
+RUN useradd -r -s /bin/false -d /var/lib/nnoe -m nnoe
+
+# Copy binary
+COPY --from=builder /app/target/release/nnoe-agent /usr/local/bin/nnoe-agent
+
+# Create directories
+RUN mkdir -p /etc/nnoe /var/lib/nnoe/cache /var/log/nnoe && \
+    chown -R nnoe:nnoe /var/lib/nnoe /var/log/nnoe
+
+# Switch to non-root user
+USER nnoe
+
+WORKDIR /var/lib/nnoe
+
+# Expose ports (if needed for health checks)
+EXPOSE 8080
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+    CMD curl -f http://localhost:8080/health || exit 1
+
+ENTRYPOINT ["/usr/local/bin/nnoe-agent"]
+CMD ["run", "-c", "/etc/nnoe/agent.toml"]
+

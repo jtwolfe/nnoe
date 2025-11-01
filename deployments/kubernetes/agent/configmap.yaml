@@ -1,0 +1,45 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: nnoe-agent-config
+  namespace: nnoe
+data:
+  agent.toml: |
+    [node]
+    name = "${NODE_NAME}"
+    role = "active"
+
+    [etcd]
+    endpoints = ["http://etcd.nnoe.svc.cluster.local:2379"]
+    prefix = "/nnoe"
+    timeout_secs = 5
+
+    [cache]
+    path = "/var/lib/nnoe/cache"
+    default_ttl_secs = 300
+    max_size_mb = 100
+
+    [nebula]
+    enabled = false
+
+    [services.dns]
+    enabled = true
+    engine = "knot"
+    config_path = "/etc/knot/knot.conf"
+    zone_dir = "/var/lib/knot/zones"
+
+    [services.dhcp]
+    enabled = true
+    engine = "kea"
+    config_path = "/etc/kea/kea-dhcp4.conf"
+    ha_pair_id = null
+
+    [services.dnsdist]
+    enabled = true
+    config_path = "/etc/dnsdist/dnsdist.conf"
+    lua_script_path = "/etc/dnsdist/lua/rules.lua"
+
+    [logging]
+    level = "info"
+    json = true
+

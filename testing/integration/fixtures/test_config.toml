@@ -1,0 +1,38 @@
+[node]
+name = "test-node-1"
+role = "active"
+
+[etcd]
+endpoints = ["http://127.0.0.1:2379"]
+prefix = "/nnoe/test"
+timeout_secs = 5
+
+[cache]
+path = "/tmp/nnoe-test-cache"
+default_ttl_secs = 60
+max_size_mb = 10
+
+[nebula]
+enabled = false
+
+[services.dns]
+enabled = true
+engine = "knot"
+config_path = "/tmp/test-knot.conf"
+zone_dir = "/tmp/test-zones"
+
+[services.dhcp]
+enabled = true
+engine = "kea"
+config_path = "/tmp/test-kea.conf"
+ha_pair_id = "test-pair"
+
+[services.dnsdist]
+enabled = true
+config_path = "/tmp/test-dnsdist.conf"
+lua_script_path = "/tmp/test-dnsdist.lua"
+
+[logging]
+level = "debug"
+json = false
+

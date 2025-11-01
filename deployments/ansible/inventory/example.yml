@@ -1,0 +1,35 @@
+all:
+  children:
+    management:
+      hosts:
+        mgmt-1:
+          ansible_host: 192.168.1.10
+          nnoe_node_role: management
+          etcd_initial_cluster: "mgmt-1=http://192.168.1.10:2380"
+          etcd_cluster_state: new
+        mgmt-2:
+          ansible_host: 192.168.1.11
+          nnoe_node_role: management
+          etcd_initial_cluster: "mgmt-1=http://192.168.1.10:2380,mgmt-2=http://192.168.1.11:2380"
+          etcd_cluster_state: existing
+        mgmt-3:
+          ansible_host: 192.168.1.12
+          nnoe_node_role: management
+          etcd_initial_cluster: "mgmt-1=http://192.168.1.10:2380,mgmt-2=http://192.168.1.11:2380,mgmt-3=http://192.168.1.12:2380"
+          etcd_cluster_state: existing
+    
+    agents:
+      hosts:
+        agent-1:
+          ansible_host: 192.168.1.20
+          nnoe_node_role: active
+          etcd_endpoints: ["http://192.168.1.10:2379", "http://192.168.1.11:2379", "http://192.168.1.12:2379"]
+        agent-2:
+          ansible_host: 192.168.1.21
+          nnoe_node_role: active
+          etcd_endpoints: ["http://192.168.1.10:2379", "http://192.168.1.11:2379", "http://192.168.1.12:2379"]
+
+  vars:
+    ansible_user: root
+    ansible_python_interpreter: /usr/bin/python3
+

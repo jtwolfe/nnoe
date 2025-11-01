@@ -1,0 +1,38 @@
+---
+- name: Install Knot DNS
+  package:
+    name: knot
+    state: present
+  when: dns_enabled | default(true)
+
+- name: Install Kea DHCP
+  package:
+    name: kea
+    state: present
+  when: dhcp_enabled | default(true)
+
+- name: Create service directories
+  file:
+    path: "{{ item }}"
+    state: directory
+    mode: '0755'
+  loop:
+    - /etc/knot
+    - /var/lib/knot/zones
+    - /etc/kea
+  when: dns_enabled | default(true) or dhcp_enabled | default(true)
+
+- name: Enable and start Knot DNS
+  systemd:
+    name: knot
+    enabled: yes
+    state: started
+  when: dns_enabled | default(true)
+
+- name: Enable and start Kea DHCP
+  systemd:
+    name: kea-dhcp4
+    enabled: yes
+    state: started
+  when: dhcp_enabled | default(true)
+

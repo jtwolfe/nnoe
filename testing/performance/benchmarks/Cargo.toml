@@ -1,0 +1,15 @@
+[package]
+name = "nnoe-benchmarks"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[[bench]]
+name = "dns_query_benchmark"
+harness = false
+
+[dependencies]
+criterion.workspace = true
+serde_json.workspace = true
+

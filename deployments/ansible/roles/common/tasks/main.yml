@@ -1,0 +1,31 @@
+---
+- name: Create NNOE user
+  user:
+    name: "{{ nnoe_user }}"
+    group: "{{ nnoe_group }}"
+    home: "{{ nnoe_home }}"
+    shell: /bin/false
+    system: yes
+    create_home: yes
+
+- name: Create NNOE directories
+  file:
+    path: "{{ item }}"
+    state: directory
+    owner: "{{ nnoe_user }}"
+    group: "{{ nnoe_group }}"
+    mode: '0755'
+  loop:
+    - "{{ nnoe_home }}"
+    - "{{ nnoe_home }}/cache"
+    - /etc/nnoe
+    - /var/log/nnoe
+
+- name: Install system dependencies
+  package:
+    name:
+      - curl
+      - wget
+      - ca-certificates
+    state: present
+

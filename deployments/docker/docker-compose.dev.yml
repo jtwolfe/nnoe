@@ -1,0 +1,91 @@
+version: '3.8'
+
+services:
+  etcd:
+    image: quay.io/coreos/etcd:v3.5.9
+    container_name: nnoe-etcd-dev
+    environment:
+      - ETCD_NAME=etcd-server
+      - ETCD_DATA_DIR=/etcd-data
+      - ETCD_LISTEN_CLIENT_URLS=http://0.0.0.0:2379
+      - ETCD_ADVERTISE_CLIENT_URLS=http://etcd:2379
+      - ETCD_LISTEN_PEER_URLS=http://0.0.0.0:2380
+      - ETCD_INITIAL_ADVERTISE_PEER_URLS=http://etcd:2380
+      - ETCD_INITIAL_CLUSTER=etcd-server=http://etcd:2380
+      - ETCD_INITIAL_CLUSTER_TOKEN=etcd-cluster-dev
+      - ETCD_INITIAL_CLUSTER_STATE=new
+    ports:
+      - "2379:2379"
+      - "2380:2380"
+    volumes:
+      - etcd-data:/etcd-data
+    healthcheck:
+      test: ["CMD", "etcdctl", "endpoint", "health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  agent:
+    build:
+      context: ../..
+      dockerfile: deployments/docker/Dockerfile.agent
+    container_name: nnoe-agent-dev
+    depends_on:
+      etcd:
+        condition: service_healthy
+    environment:
+      - NODE_NAME=dev-agent-1
+      - ETCD_ENDPOINTS=http://etcd:2379
+      - ETCD_PREFIX=/nnoe
+    volumes:
+      - agent-config:/etc/nnoe
+      - agent-cache:/var/lib/nnoe/cache
+      - agent-logs:/var/log/nnoe
+      - /tmp/test-knot.conf:/etc/knot/knot.conf:rw
+      - /tmp/test-zones:/var/lib/knot/zones:rw
+    command: ["run", "-c", "/etc/nnoe/agent.toml", "--debug"]
+    restart: unless-stopped
+
+  misp-sync:
+    build:
+      context: ../..
+      dockerfile: deployments/docker/Dockerfile.misp-sync
+    container_name: nnoe-misp-sync-dev
+    depends_on:
+      - etcd
+    environment:
+      - MISP_URL=http://localhost
+      - MISP_API_KEY=
+      - ETCD_ENDPOINTS=http://etcd:2379
+      - ETCD_PREFIX=/nnoe
+      - SYNC_INTERVAL_SECS=3600
+    restart: unless-stopped
+
+  # Optional: phpIPAM with NNOE plugin
+  phpipam:
+    build:
+      context: ../..
+      dockerfile: deployments/docker/Dockerfile.phpipam
+    container_name: nnoe-phpipam-dev
+    depends_on:
+      - etcd
+    environment:
+      - NNOE_ETCD_ENDPOINTS=http://etcd:2379
+      - NNOE_ETCD_PREFIX=/nnoe
+    ports:
+      - "8080:80"
+    volumes:
+      - phpipam-data:/var/www/html/data
+    restart: unless-stopped
+
+volumes:
+  etcd-data:
+  agent-config:
+  agent-cache:
+  agent-logs:
+  phpipam-data:
+
+networks:
+  default:
+    name: nnoe-dev
+

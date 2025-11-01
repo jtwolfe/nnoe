@@ -1,0 +1,9 @@
+{
+  "domain": "malicious.example.com",
+  "source": "MISP",
+  "severity": "high",
+  "timestamp": "2025-01-01T12:00:00Z",
+  "misp_event_id": "12345",
+  "category": "malware"
+}
+

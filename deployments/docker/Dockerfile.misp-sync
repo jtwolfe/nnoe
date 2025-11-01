@@ -1,0 +1,24 @@
+# MISP Sync Service
+
+FROM rust:1.70 as builder
+
+WORKDIR /app
+
+# Copy workspace files
+COPY Cargo.toml Cargo.lock ./
+COPY integrations/misp-sync/ ./integrations/misp-sync/
+
+# Build
+RUN cargo build --release --package nnoe-misp-sync
+
+# Final stage
+FROM debian:bullseye-slim
+
+RUN apt-get update && apt-get install -y \
+    ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY --from=builder /app/target/release/misp-sync /usr/local/bin/misp-sync
+
+ENTRYPOINT ["/usr/local/bin/misp-sync"]
+

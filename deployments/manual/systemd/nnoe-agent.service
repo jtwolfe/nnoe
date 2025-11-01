@@ -1,0 +1,25 @@
+[Unit]
+Description=NNOE Agent - Distributed DDI orchestration agent
+Documentation=https://github.com/nnoe/nnoe
+After=network.target etcd.service
+
+[Service]
+Type=simple
+User=nnoe
+Group=nnoe
+ExecStart=/usr/local/bin/nnoe-agent run -c /etc/nnoe/agent.toml
+Restart=on-failure
+RestartSec=5s
+StandardOutput=journal
+StandardError=journal
+
+# Security settings
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/nnoe/cache /var/log/nnoe
+
+[Install]
+WantedBy=multi-user.target
+

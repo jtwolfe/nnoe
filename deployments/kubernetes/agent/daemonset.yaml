@@ -1,0 +1,96 @@
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: nnoe-agent
+  namespace: nnoe
+  labels:
+    app: nnoe-agent
+spec:
+  selector:
+    matchLabels:
+      app: nnoe-agent
+  template:
+    metadata:
+      labels:
+        app: nnoe-agent
+    spec:
+      hostNetwork: true
+      dnsPolicy: ClusterFirstWithHostNet
+      containers:
+      - name: agent
+        image: ghcr.io/nnoe/agent:latest
+        imagePullPolicy: Always
+        securityContext:
+          capabilities:
+            add:
+            - NET_ADMIN
+            - SYS_ADMIN
+        env:
+        - name: NODE_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: spec.nodeName
+        - name: ETCD_ENDPOINTS
+          value: "http://etcd.nnoe.svc.cluster.local:2379"
+        - name: ETCD_PREFIX
+          value: "/nnoe"
+        volumeMounts:
+        - name: config
+          mountPath: /etc/nnoe
+          readOnly: true
+        - name: cache
+          mountPath: /var/lib/nnoe/cache
+        - name: logs
+          mountPath: /var/log/nnoe
+        - name: knot-config
+          mountPath: /etc/knot
+        - name: knot-zones
+          mountPath: /var/lib/knot/zones
+        - name: kea-config
+          mountPath: /etc/kea
+        resources:
+          requests:
+            memory: "128Mi"
+            cpu: "100m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+        livenessProbe:
+          exec:
+            command:
+            - /usr/local/bin/nnoe-agent
+            - validate
+            - -c
+            - /etc/nnoe/agent.toml
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        readinessProbe:
+          exec:
+            command:
+            - /usr/local/bin/nnoe-agent
+            - validate
+            - -c
+            - /etc/nnoe/agent.toml
+          initialDelaySeconds: 10
+          periodSeconds: 5
+      volumes:
+      - name: config
+        configMap:
+          name: nnoe-agent-config
+      - name: cache
+        emptyDir: {}
+      - name: logs
+        emptyDir: {}
+      - name: knot-config
+        hostPath:
+          path: /etc/knot
+          type: DirectoryOrCreate
+      - name: knot-zones
+        hostPath:
+          path: /var/lib/knot/zones
+          type: DirectoryOrCreate
+      - name: kea-config
+        hostPath:
+          path: /etc/kea
+          type: DirectoryOrCreate
+

@@ -1,0 +1,15 @@
+{
+  "subnet": "192.168.1.0/24",
+  "pool": {
+    "start": "192.168.1.100",
+    "end": "192.168.1.200"
+  },
+  "gateway": "192.168.1.1",
+  "options": {
+    "router": "192.168.1.1",
+    "dns-servers": "192.168.1.1,8.8.8.8",
+    "domain-name": "example.com",
+    "lease-time": "86400"
+  }
+}
+

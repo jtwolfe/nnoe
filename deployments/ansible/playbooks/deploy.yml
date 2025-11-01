@@ -1,0 +1,23 @@
+---
+- name: Deploy NNOE
+  hosts: all
+  become: yes
+  vars:
+    nnoe_version: "0.1.0"
+    nnoe_user: "nnoe"
+    nnoe_group: "nnoe"
+    nnoe_home: "/var/lib/nnoe"
+    etcd_endpoints: "http://127.0.0.1:2379"
+    etcd_prefix: "/nnoe"
+    
+  roles:
+    - common
+    - etcd
+    - agent
+    - services
+
+  tasks:
+    - name: Ensure NNOE is deployed
+      debug:
+        msg: "NNOE deployment complete"
+

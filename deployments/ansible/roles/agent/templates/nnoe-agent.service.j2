@@ -1,0 +1,17 @@
+[Unit]
+Description=NNOE Agent - Distributed DDI orchestration agent
+After=network.target etcd.service
+
+[Service]
+Type=simple
+User={{ nnoe_user }}
+Group={{ nnoe_group }}
+ExecStart=/usr/local/bin/nnoe-agent run -c /etc/nnoe/agent.toml
+Restart=on-failure
+RestartSec=5s
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
+
