@@ -1,252 +1,306 @@
-# Backup and Restore Guide
+# Backup and Restore Procedures
 
-Procedures for backing up and restoring NNOE deployments.
+This document describes backup and restore procedures for NNOE components.
 
-## Backup Strategy
+## Overview
 
-### What to Backup
+NNOE stores critical configuration and state in:
+- **etcd**: Configuration data, zones, DHCP scopes, policies, HA state
+- **sled cache**: Local agent cache (optional backup for performance)
+- **phpIPAM database**: UI/IPAM data (MySQL/MariaDB)
 
-1. **etcd Cluster Data**: Configuration and state
-2. **Agent Configuration**: `/etc/nnoe/agent.toml`
-3. **Service Configurations**: Knot, Kea, dnsdist configs
-4. **Certificates**: Nebula certificates, TLS certs
-5. **Zone Files**: DNS zone files (if not in etcd)
+## Backup Strategies
 
-## etcd Backup
+### etcd Backup
 
-### Creating Backups
+etcd contains all NNOE configuration and state. Regular backups are critical.
 
-**Using etcdctl:**
+#### Automated Backup (Recommended)
 
-```bash
-# Create snapshot
-etcdctl snapshot save /backup/etcd-backup.db \
-  --endpoints=http://127.0.0.1:2379
-
-# Compress backup
-gzip /backup/etcd-backup.db
-```
-
-**Using Script:**
+Use the etcd orchestrator backup script:
 
 ```bash
-./management/etcd-orchestrator/backup.sh \
-  http://127.0.0.1:2379 \
-  /backup/etcd
+# From management node
+cd management/etcd-orchestrator
+./backup.sh /backup/nnoe/etcd
 ```
 
-### Automated Backups
+This creates timestamped snapshots:
+- `/backup/nnoe/etcd/etcd-snapshot-YYYYMMDD-HHMMSS.db`
 
-**Cron Job:**
+#### Manual Backup
 
 ```bash
-# Add to crontab
-0 2 * * * /path/to/backup.sh http://127.0.0.1:2379 /backup/etcd
+# Single node backup
+ETCDCTL_API=3 etcdctl snapshot save /backup/etcd-snapshot.db \
+  --endpoints=https://127.0.0.1:2379 \
+  --cacert=/etc/nnoe/certs/ca.crt \
+  --cert=/etc/nnoe/certs/client.crt \
+  --key=/etc/nnoe/certs/client.key
+
+# Verify backup
+ETCDCTL_API=3 etcdctl snapshot status /backup/etcd-snapshot.db
 ```
 
-**systemd Timer:**
+#### Backup Schedule
 
-```ini
-[Unit]
-Description=etcd Backup
+Recommended backup frequency:
+- **Production**: Every 6 hours (retain 7 days)
+- **Development**: Daily (retain 3 days)
 
-[Timer]
-OnCalendar=daily
-Persistent=true
-
-[Install]
-WantedBy=timers.target
+Example cron job:
+```cron
+0 */6 * * * /opt/nnoe/scripts/etcd-backup.sh
 ```
 
-### Backup Retention
+### phpIPAM Database Backup
 
-- Keep daily backups for 7 days
-- Keep weekly backups for 4 weeks
-- Keep monthly backups for 12 months
+phpIPAM uses MySQL/MariaDB for its backend.
 
-## etcd Restore
-
-### From Snapshot
-
-```bash
-# Stop etcd
-systemctl stop etcd
-
-# Restore snapshot
-etcdutl snapshot restore /backup/etcd-backup.db \
-  --data-dir=/var/lib/etcd \
-  --initial-cluster-token=restored-cluster
-
-# Start etcd
-systemctl start etcd
-```
-
-**Using Script:**
-
-```bash
-./management/etcd-orchestrator/restore.sh \
-  /backup/etcd-backup.db.gz \
-  /var/lib/etcd \
-  restored-cluster-token
-```
-
-### Cluster Restore
-
-1. **Restore to First Node:**
-   ```bash
-   etcdutl snapshot restore backup.db \
-     --initial-cluster="etcd-1=http://192.168.1.10:2380" \
-     --initial-cluster-token=restored-token
-   ```
-
-2. **Add Additional Nodes:**
-   ```bash
-   # Add nodes to cluster after first node restored
-   ```
-
-## Configuration Backup
-
-### Agent Configuration
-
-```bash
-# Backup config
-cp /etc/nnoe/agent.toml /backup/agent-$(date +%Y%m%d).toml
-
-# Restore
-cp /backup/agent-20250101.toml /etc/nnoe/agent.toml
-systemctl restart nnoe-agent
-```
-
-### Service Configurations
-
-```bash
-# Backup Knot config
-cp /etc/knot/knot.conf /backup/knot-$(date +%Y%m%d).conf
-
-# Backup Kea config
-cp /etc/kea/kea-dhcp4.conf /backup/kea-$(date +%Y%m%d).conf
-
-# Restore
-cp /backup/knot-20250101.conf /etc/knot/knot.conf
-knotc reload
-```
-
-## Certificate Backup
-
-### Nebula Certificates
-
-```bash
-# Backup CA and certificates
-tar czf /backup/nebula-certs-$(date +%Y%m%d).tar.gz \
-  /etc/nebula/ca/ \
-  /etc/nebula/certs/
-
-# Restore
-tar xzf /backup/nebula-certs-20250101.tar.gz -C /
-```
-
-### TLS Certificates
-
-```bash
-# Backup TLS certs
-cp -r /etc/nnoe/certs /backup/certs-$(date +%Y%m%d)
-```
-
-## Complete System Backup
-
-### Backup Script
+#### Automated Backup
 
 ```bash
 #!/bin/bash
-BACKUP_DIR="/backup/nnoe-$(date +%Y%m%d)"
+# backup-phpipam.sh
+
+BACKUP_DIR="/backup/nnoe/phpipam"
+DATE=$(date +%Y%m%d-%H%M%S)
+DB_NAME="phpipam"
+DB_USER="phpipam"
+
 mkdir -p "$BACKUP_DIR"
 
-# etcd backup
-etcdctl snapshot save "$BACKUP_DIR/etcd.db" \
-  --endpoints=http://127.0.0.1:2379
-
-# Config backup
-cp -r /etc/nnoe "$BACKUP_DIR/etc-nnoe"
-cp -r /etc/knot "$BACKUP_DIR/etc-knot"
-cp -r /etc/kea "$BACKUP_DIR/etc-kea"
-
-# Certificate backup
-cp -r /etc/nebula "$BACKUP_DIR/etc-nebula"
+# Dump database
+mysqldump -u "$DB_USER" -p"$DB_PASSWORD" "$DB_NAME" \
+  > "$BACKUP_DIR/phpipam-$DATE.sql"
 
 # Compress
-tar czf "$BACKUP_DIR.tar.gz" "$BACKUP_DIR"
-rm -rf "$BACKUP_DIR"
+gzip "$BACKUP_DIR/phpipam-$DATE.sql"
 
-# Upload to remote storage (optional)
-# scp "$BACKUP_DIR.tar.gz" backup-server:/backups/
+# Retain last 7 days
+find "$BACKUP_DIR" -name "*.sql.gz" -mtime +7 -delete
+```
+
+#### Manual Backup
+
+```bash
+mysqldump -u phpipam -p phpipam > phpipam-backup.sql
+```
+
+### Agent Cache Backup (Optional)
+
+The sled cache is regenerated automatically, but can be backed up for faster recovery:
+
+```bash
+# From agent node
+tar -czf /backup/nnoe/cache/node-$(hostname)-$(date +%Y%m%d).tar.gz \
+  /var/nnoe/cache
+```
+
+## Restore Procedures
+
+### etcd Restore
+
+#### From Backup Snapshot
+
+```bash
+# 1. Stop etcd on all nodes
+systemctl stop etcd
+
+# 2. Restore snapshot on first node
+ETCDCTL_API=3 etcdctl snapshot restore /backup/etcd-snapshot.db \
+  --data-dir=/var/lib/etcd/restored \
+  --name=etcd-1 \
+  --initial-advertise-peer-urls=https://192.168.1.10:2380 \
+  --initial-cluster=etcd-1=https://192.168.1.10:2380,etcd-2=https://192.168.1.11:2380,etcd-3=https://192.168.1.12:2380
+
+# 3. Update etcd service to use restored data-dir
+# Edit /etc/systemd/system/etcd.service
+# Change --data-dir=/var/lib/etcd to --data-dir=/var/lib/etcd/restored
+
+# 4. Start etcd
+systemctl start etcd
+
+# 5. Verify cluster health
+ETCDCTL_API=3 etcdctl endpoint health --endpoints=https://127.0.0.1:2379 \
+  --cacert=/etc/nnoe/certs/ca.crt \
+  --cert=/etc/nnoe/certs/client.crt \
+  --key=/etc/nnoe/certs/client.key
+
+# 6. Rebuild cluster (add remaining nodes)
+# On other nodes, use etcd member add/remove commands
+```
+
+#### Using Restore Script
+
+```bash
+cd management/etcd-orchestrator
+./restore.sh /backup/nnoe/etcd/etcd-snapshot-20240101-120000.db
+```
+
+### phpIPAM Database Restore
+
+```bash
+# 1. Stop phpIPAM
+docker-compose stop phpipam
+
+# 2. Restore database
+gunzip < /backup/nnoe/phpipam/phpipam-20240101-120000.sql.gz | \
+  mysql -u phpipam -p phpipam
+
+# 3. Restart phpIPAM
+docker-compose start phpipam
+```
+
+### Agent Cache Restore (Optional)
+
+```bash
+# From agent node
+systemctl stop nnoe-agent
+tar -xzf /backup/nnoe/cache/node-hostname-20240101.tar.gz -C /
+systemctl start nnoe-agent
 ```
 
 ## Disaster Recovery
 
-### Recovery Procedure
+### Full Cluster Recovery
 
-1. **Assess Damage**: Identify what needs restoration
-2. **Restore etcd**: Restore cluster from backup
-3. **Restore Configs**: Restore configuration files
-4. **Restore Certificates**: Restore certificates
-5. **Start Services**: Start and verify services
-6. **Validate**: Verify system functionality
+In case of complete cluster failure:
 
-### Recovery Checklist
+1. **Restore etcd from latest backup**
+   - Restore snapshot on first node
+   - Rebuild cluster from scratch
 
-- [ ] etcd cluster restored and healthy
-- [ ] Agent configuration restored
-- [ ] Service configs restored
-- [ ] Certificates valid
-- [ ] Services running
-- [ ] DNS resolving correctly
-- [ ] DHCP issuing leases
-- [ ] Monitoring functional
+2. **Restore phpIPAM database**
+   - Restore MySQL dump
+   - Verify UI connectivity
+
+3. **Reconfigure agents**
+   - Agents will automatically reconnect to etcd
+   - Cache will regenerate automatically
+
+4. **Verify services**
+   - Check DNS resolution
+   - Check DHCP leases
+   - Verify monitoring/metrics
+
+### Partial Recovery (Single Node Failure)
+
+1. **Management node failure**
+   - If etcd leader fails, follower auto-promotes
+   - Restore phpIPAM if needed
+   - Verify agent connectivity
+
+2. **Agent node failure**
+   - Agent is stateless (config in etcd)
+   - Restart agent on new node
+   - Agent will pull config from etcd
+
+3. **Database-only node failure**
+   - etcd follower lost, but cluster survives with quorum
+   - Add new node or restore from backup
 
 ## Backup Verification
 
-### Test Restores
-
-Regularly test backup restoration:
+### Verify etcd Backup
 
 ```bash
-# Create test environment
-docker run -d --name etcd-test quay.io/coreos/etcd:v3.5.9
+ETCDCTL_API=3 etcdctl snapshot status /backup/etcd-snapshot.db
 
-# Restore to test environment
-etcdutl snapshot restore backup.db \
-  --data-dir=/tmp/etcd-test
+# Expected output:
+# Hash: abc123...
+# Revision: 12345
+# Total Keys: 1000
+# Total Size: 5.2 MB
+```
 
-# Verify data
-etcdctl --endpoints=http://localhost:2379 get --prefix /nnoe
+### Verify phpIPAM Backup
+
+```bash
+# Check SQL file integrity
+gunzip -t /backup/nnoe/phpipam/phpipam-*.sql.gz
+
+# Check database size
+ls -lh /backup/nnoe/phpipam/phpipam-*.sql.gz
 ```
 
 ## Best Practices
 
-1. **Regular Backups**: Daily automated backups
-2. **Off-site Storage**: Store backups remotely
-3. **Test Restores**: Verify backups regularly
-4. **Document Procedures**: Document all backup/restore steps
-5. **Monitor Backup Success**: Alert on backup failures
-6. **Retention Policy**: Clear retention policy
-7. **Encryption**: Encrypt sensitive backups
+1. **Automate backups**: Use cron/systemd timers
+2. **Test restores**: Regularly test restore procedures
+3. **Off-site storage**: Store backups in separate location
+4. **Encryption**: Encrypt backups at rest
+5. **Monitoring**: Monitor backup success/failure
+6. **Documentation**: Keep restore procedures documented
+7. **Retention**: Follow retention policies (7 days for prod)
 
-## Backup Tools
+## Backup Script Example
 
-### etcd
+Complete backup script:
 
-- `etcdctl snapshot save`: Create snapshots
-- `etcdutl snapshot restore`: Restore snapshots
+```bash
+#!/bin/bash
+# Full NNOE backup script
 
-### Files
+set -euo pipefail
 
-- `tar`: Archive files
-- `rsync`: Sync files
-- `rclone`: Cloud storage sync
+BACKUP_ROOT="/backup/nnoe"
+DATE=$(date +%Y%m%d-%H%M%S)
+BACKUP_DIR="$BACKUP_ROOT/$DATE"
 
-### Automation
+mkdir -p "$BACKUP_DIR"
 
-- Cron jobs
-- systemd timers
-- CI/CD pipelines
+# Backup etcd
+echo "Backing up etcd..."
+ETCDCTL_API=3 etcdctl snapshot save "$BACKUP_DIR/etcd-snapshot.db" \
+  --endpoints=https://127.0.0.1:2379 \
+  --cacert=/etc/nnoe/certs/ca.crt \
+  --cert=/etc/nnoe/certs/client.crt \
+  --key=/etc/nnoe/certs/client.key
 
+# Backup phpIPAM
+echo "Backing up phpIPAM..."
+mysqldump -u phpipam -p"$MYSQL_PASSWORD" phpipam | \
+  gzip > "$BACKUP_DIR/phpipam.sql.gz"
+
+# Backup agent configs (if custom)
+if [ -d "/etc/nnoe/agent.d" ]; then
+  tar -czf "$BACKUP_DIR/agent-configs.tar.gz" /etc/nnoe/agent.d
+fi
+
+# Compress entire backup
+tar -czf "$BACKUP_ROOT/nnoe-backup-$DATE.tar.gz" -C "$BACKUP_ROOT" "$DATE"
+rm -rf "$BACKUP_DIR"
+
+# Upload to S3/object storage (optional)
+# aws s3 cp "$BACKUP_ROOT/nnoe-backup-$DATE.tar.gz" \
+#   s3://nnoe-backups/
+
+echo "Backup completed: nnoe-backup-$DATE.tar.gz"
+
+# Cleanup old backups (retain 7 days)
+find "$BACKUP_ROOT" -name "nnoe-backup-*.tar.gz" -mtime +7 -delete
+```
+
+## Troubleshooting
+
+### Backup Fails
+
+- Check etcd connectivity
+- Verify certificate permissions
+- Check disk space
+- Review etcd logs
+
+### Restore Fails
+
+- Verify backup file integrity
+- Check etcd data directory permissions
+- Ensure cluster configuration matches backup
+- Review etcd member list
+
+### Partial Data Loss
+
+- Restore from most recent backup
+- Check etcd revision numbers
+- Verify agent cache consistency
+- Re-sync phpIPAM if needed

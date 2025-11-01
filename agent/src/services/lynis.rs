@@ -17,6 +17,7 @@ pub struct LynisService {
     node_id: Arc<RwLock<Option<String>>>,
     last_audit: Arc<RwLock<Option<std::time::SystemTime>>>,
     audit_interval: Duration,
+    etcd_client: Arc<RwLock<Option<Arc<crate::etcd::EtcdClient>>>>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -51,7 +52,13 @@ impl LynisService {
             node_id: Arc::new(RwLock::new(node_id)),
             last_audit: Arc::new(RwLock::new(None)),
             audit_interval: Duration::from_secs(config.audit_interval_secs),
+            etcd_client: Arc::new(RwLock::new(None)),
         }
+    }
+
+    async fn set_etcd_client(&self, client: Arc<crate::etcd::EtcdClient>) {
+        let mut etcd_guard = self.etcd_client.write().await;
+        *etcd_guard = Some(client);
     }
 
     async fn run_audit(&self) -> Result<LynisReport> {
@@ -89,8 +96,9 @@ impl LynisService {
         Ok(report)
     }
 
-    async fn upload_report_to_etcd(&self, report: &LynisReport, etcd_client: Option<Arc<crate::etcd::EtcdClient>>) -> Result<()> {
-        if let Some(client) = etcd_client {
+    async fn upload_report_to_etcd(&self, report: &LynisReport) -> Result<()> {
+        let etcd_guard = self.etcd_client.read().await;
+        if let Some(ref client) = *etcd_guard {
             let report_json = serde_json::to_string(report)?;
             let key = format!("/nnoe/audit/lynis/{}", report.node);
             
@@ -102,28 +110,82 @@ impl LynisService {
         Ok(())
     }
 
-    async fn start_periodic_audits(&self, etcd_client: Option<Arc<crate::etcd::EtcdClient>>) {
-        let mut interval_timer = interval(self.audit_interval);
-        
-        loop {
-            interval_timer.tick().await;
+    async fn start_periodic_audits(&self) {
+        let audit_interval = self.audit_interval;
+        let etcd_client = Arc::clone(&self.etcd_client);
+        let last_audit = Arc::clone(&self.last_audit);
+        let config = self.config.clone();
+        let node_id = Arc::clone(&self.node_id);
+
+        tokio::spawn(async move {
+            let mut interval_timer = interval(audit_interval);
             
-            match self.run_audit().await {
-                Ok(report) => {
-                    // Upload to etcd if available
-                    if let Err(e) = self.upload_report_to_etcd(&report, etcd_client.clone()).await {
-                        error!("Failed to upload Lynis report: {}", e);
+            loop {
+                interval_timer.tick().await;
+                
+                // Create a temporary service instance for the audit
+                let report = {
+                    let node_id_guard = node_id.read().await;
+                    let node_id_str = node_id_guard.clone().unwrap_or_else(|| "unknown".to_string());
+                    drop(node_id_guard);
+
+                    // Run audit
+                    let lynis_output = Command::new("lynis")
+                        .arg("audit")
+                        .arg("system")
+                        .arg("--quiet")
+                        .arg("--report-file")
+                        .arg(&config.report_path)
+                        .output();
+
+                    match lynis_output {
+                        Ok(output) if output.status.success() => {
+                            let timestamp = chrono::Utc::now().to_rfc3339();
+                            Ok(LynisReport {
+                                node: node_id_str,
+                                timestamp,
+                                score: None,
+                                warnings: Vec::new(),
+                                suggestions: Vec::new(),
+                                sections: HashMap::new(),
+                            })
+                        }
+                        Ok(output) => {
+                            let stderr = String::from_utf8_lossy(&output.stderr);
+                            Err(anyhow::anyhow!("Lynis audit failed: {}", stderr))
+                        }
+                        Err(e) => Err(anyhow::anyhow!("Failed to execute Lynis: {}", e)),
                     }
-                    
-                    // Update last audit time
-                    let mut last_audit = self.last_audit.write().await;
-                    *last_audit = Some(std::time::SystemTime::now());
-                }
-                Err(e) => {
-                    error!("Lynis audit failed: {}", e);
+                };
+
+                match report {
+                    Ok(report) => {
+                        // Upload to etcd if available
+                        let etcd_guard = etcd_client.read().await;
+                        if let Some(ref client) = *etcd_guard {
+                            if let Err(e) = {
+                                let report_json = serde_json::to_string(&report)
+                                    .context("Failed to serialize report")?;
+                                let key = format!("/nnoe/audit/lynis/{}", report.node);
+                                client.put(&key, report_json.as_bytes()).await?;
+                                info!("Uploaded Lynis report to etcd: {}", key);
+                                Ok::<(), anyhow::Error>(())
+                            } {
+                                error!("Failed to upload Lynis report: {}", e);
+                            }
+                        }
+                        drop(etcd_guard);
+                        
+                        // Update last audit time
+                        let mut last_audit_guard = last_audit.write().await;
+                        *last_audit_guard = Some(std::time::SystemTime::now());
+                    }
+                    Err(e) => {
+                        error!("Lynis audit failed: {}", e);
+                    }
                 }
             }
-        }
+        });
     }
 }
 
@@ -162,6 +224,11 @@ impl ServicePlugin for LynisService {
             Ok(_) => info!("Lynis is installed and available"),
             Err(_) => warn!("Lynis not found in PATH - audits will fail"),
         }
+
+        // Start periodic audits task
+        // Note: etcd_client should be set before this is called
+        self.start_periodic_audits().await;
+        info!("Lynis periodic audit task started");
 
         Ok(())
     }

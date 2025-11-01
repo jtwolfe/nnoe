@@ -1,0 +1,26 @@
+[package]
+name = "nnoe-prometheus-exporter"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "nnoe-prometheus-exporter"
+path = "src/main.rs"
+
+[dependencies]
+tokio.workspace = true
+tokio-stream.workspace = true
+hyper = { version = "1.0", features = ["server", "http1", "http2"] }
+hyper-util = { version = "0.1", features = ["server"] }
+http-body-util = "0.1"
+tower = "0.4"
+tower-service = "0.3"
+prometheus = "0.13"
+anyhow.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+nnoe-agent = { path = "../../../agent" }
+

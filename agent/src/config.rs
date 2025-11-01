@@ -98,6 +98,10 @@ pub struct DnsServiceConfig {
     pub engine: String,
     pub config_path: String,
     pub zone_dir: String,
+    #[serde(default = "default_listen_address")]
+    pub listen_address: String,
+    #[serde(default = "default_listen_port")]
+    pub listen_port: u16,
 }
 
 fn default_dns_engine() -> String {
@@ -112,10 +116,38 @@ pub struct DhcpServiceConfig {
     pub config_path: String,
     #[serde(default)]
     pub ha_pair_id: Option<String>,
+    #[serde(default = "default_interface")]
+    pub interface: String,
+    #[serde(default = "default_kea_control_port")]
+    pub control_port: u16,
 }
 
 fn default_dhcp_engine() -> String {
     "kea".to_string()
+}
+
+fn default_listen_address() -> String {
+    "0.0.0.0".to_string()
+}
+
+fn default_listen_port() -> u16 {
+    53
+}
+
+fn default_interface() -> String {
+    "eth0".to_string()
+}
+
+fn default_kea_control_port() -> u16 {
+    8000
+}
+
+fn default_dnsdist_control_port() -> u16 {
+    5199
+}
+
+fn default_prometheus_port() -> u16 {
+    9090
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -123,6 +155,14 @@ pub struct DnsdistServiceConfig {
     pub enabled: bool,
     pub config_path: String,
     pub lua_script_path: String,
+    #[serde(default = "default_listen_address")]
+    pub listen_address: String,
+    #[serde(default = "default_listen_port")]
+    pub listen_port: u16,
+    #[serde(default = "default_dnsdist_control_port")]
+    pub control_port: u16,
+    #[serde(default)]
+    pub upstream_resolvers: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

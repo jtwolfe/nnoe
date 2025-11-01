@@ -3,6 +3,7 @@ members = [
     "agent",
     "integrations/misp-sync",
     "testing/performance/benchmarks",
+    "management/monitoring/prometheus-exporter",
 ]
 resolver = "2"
 
@@ -26,6 +27,21 @@ toml = "0.8"
 
 # etcd client
 etcd-client = "0.11"
+
+# TLS support
+rustls = { version = "0.21", features = ["dangerous_configuration"] }
+rustls-pemfile = "1.0"
+rustls-native-certs = "0.6"
+
+# gRPC support for Cerbos
+tonic = "0.10"
+tonic-build = "0.10"
+prost = "0.12"
+uuid = { version = "1.6", features = ["v4"] }
+bincode = "1.3"
+
+# HTTP client
+reqwest = { version = "0.11", features = ["json"] }
 
 # Embedded cache
 sled = "0.34"

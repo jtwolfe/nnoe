@@ -2,6 +2,7 @@ use crate::config::DnsdistServiceConfig;
 use crate::plugin::ServicePlugin;
 use anyhow::{Context, Result};
 use async_trait::async_trait;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::process::Command;
@@ -105,8 +106,8 @@ impl DnsdistService {
         let mut config_content = String::from("# NNOE Generated dnsdist Configuration\n");
         config_content.push_str("# Auto-generated, do not edit manually\n\n");
         config_content.push_str(&format!("setKey(\"nnoe-dnsdist-key\")\n"));
-        config_content.push_str(&format!("controlSocket(\"127.0.0.1:5199\")\n"));
-        config_content.push_str(&format!("setLocal(\"0.0.0.0:53\")\n\n"));
+        config_content.push_str(&format!("controlSocket(\"127.0.0.1:{}\")\n", self.config.control_port));
+        config_content.push_str(&format!("setLocal(\"{}:{}\")\n\n", self.config.listen_address, self.config.listen_port));
         
         // Add Lua script reference
         config_content.push_str(&format!(
@@ -114,10 +115,18 @@ impl DnsdistService {
             self.lua_script_path.to_string_lossy()
         ));
 
-        // Add upstream resolvers (placeholder)
+        // Add upstream resolvers
         config_content.push_str("\n# Upstream resolvers\n");
-        config_content.push_str("newServer({address=\"127.0.0.1:5353\", name=\"local\"})\n");
-        config_content.push_str("newServer({address=\"8.8.8.8\", name=\"google\"})\n");
+        if self.config.upstream_resolvers.is_empty() {
+            // Default upstreams if none configured
+            config_content.push_str("newServer({address=\"127.0.0.1:5353\", name=\"local\"})\n");
+            config_content.push_str("newServer({address=\"8.8.8.8\", name=\"google\"})\n");
+        } else {
+            for resolver in &self.config.upstream_resolvers {
+                config_content.push_str(&format!("newServer({{address=\"{}\", name=\"{}\"}})\n", 
+                    resolver, resolver.split(':').next().unwrap_or("resolver")));
+            }
+        }
 
         std::fs::write(&self.config_path, config_content)
             .context(format!("Failed to write dnsdist config to {:?}", self.config_path))?;
@@ -181,6 +190,188 @@ impl DnsdistService {
         info!("Updated RPZ with {} threat domains", rpz.len());
         Ok(())
     }
+
+    async fn process_cerbos_policy(&self, key: &str, policy_data: &[u8]) -> Result<()> {
+        debug!("Processing Cerbos policy from key: {}", key);
+
+        #[derive(Debug, Deserialize)]
+        struct CerbosPolicy {
+            #[serde(rename = "apiVersion")]
+            api_version: Option<String>,
+            resource_policy: Option<ResourcePolicy>,
+        }
+
+        #[derive(Debug, Deserialize)]
+        struct ResourcePolicy {
+            version: String,
+            resource: String,
+            rules: Vec<PolicyRule>,
+        }
+
+        #[derive(Debug, Deserialize)]
+        struct PolicyRule {
+            actions: Vec<String>,
+            effect: String,
+            roles: Vec<String>,
+            condition: Option<PolicyCondition>,
+        }
+
+        #[derive(Debug, Deserialize)]
+        struct PolicyCondition {
+            #[serde(rename = "match")]
+            match_expr: Option<MatchExpr>,
+        }
+
+        #[derive(Debug, Deserialize)]
+        struct MatchExpr {
+            expr: Option<String>,
+        }
+
+        // Try to parse as YAML first, then JSON
+        let policy: CerbosPolicy = if let Ok(p) = serde_yaml::from_slice(policy_data) {
+            p
+        } else {
+            serde_json::from_slice(policy_data)
+                .context("Failed to parse policy as YAML or JSON")?
+        };
+
+        // Only process DNS-related policies
+        if let Some(ref resource_policy) = policy.resource_policy {
+            if resource_policy.resource != "dns_query" {
+                debug!("Skipping non-DNS policy: {}", resource_policy.resource);
+                return Ok(());
+            }
+
+            let mut rules = self.rules.write().await;
+            
+            // Extract policy ID from key
+            let policy_id = key.split('/').last().unwrap_or("unknown");
+            
+            // Convert each rule to Lua
+            for (idx, rule) in resource_policy.rules.iter().enumerate() {
+                if rule.effect != "EFFECT_ALLOW" && rule.actions.contains(&"allow".to_string()) {
+                    continue; // Skip deny rules for now, or handle them differently
+                }
+
+                let lua_code = self.cerbos_rule_to_lua(rule, policy_id, idx)?;
+                
+                rules.push(DnsdistRule {
+                    name: format!("cerbos_{}_{}", policy_id, idx),
+                    lua_code,
+                    priority: (1000 + idx) as u32, // Higher priority than RPZ
+                });
+            }
+
+            info!("Converted {} rules from Cerbos policy {}", 
+                  resource_policy.rules.len(), policy_id);
+
+            drop(rules);
+            
+            // Regenerate Lua script
+            self.generate_lua_script().await?;
+            self.reload_dnsdist().await?;
+        }
+
+        Ok(())
+    }
+
+    fn cerbos_rule_to_lua(&self, rule: &serde_json::Value, policy_id: &str, rule_idx: usize) -> Result<String> {
+        // This is a simplified parser - in production, use a proper expression parser
+        let mut lua = String::from("addLuaAction(AllRule(), function(dq)\n");
+        lua.push_str("  local qname = dq.qname:toString()\n");
+        lua.push_str("  local current_time = os.time(os.date(\"*t\"))\n");
+        lua.push_str("  local current_hour = tonumber(os.date(\"%H\", current_time))\n");
+
+        // Extract roles
+        if let Some(roles) = rule.get("roles").and_then(|r| r.as_array()) {
+            let role_checks: Vec<String> = roles
+                .iter()
+                .filter_map(|r| r.as_str())
+                .map(|r| format!("role == \"{}\"", r))
+                .collect();
+            
+            if !role_checks.is_empty() {
+                lua.push_str("  -- Role-based check (placeholder - role would come from request context)\n");
+                lua.push_str("  local role = \"user\" -- TODO: Extract from request\n");
+                lua.push_str(&format!("  local has_role = ({})\n", role_checks.join(" or ")));
+            }
+        }
+
+        // Extract condition expressions
+        if let Some(condition) = rule.get("condition") {
+            if let Some(match_expr) = condition.get("match") {
+                if let Some(expr) = match_expr.get("expr").and_then(|e| e.as_str()) {
+                    // Convert Cerbos expression to Lua
+                    let lua_expr = self.convert_cerbos_expr_to_lua(expr);
+                    lua.push_str(&format!("  local condition_result = {}\n", lua_expr));
+                    lua.push_str("  if not condition_result then\n");
+                    lua.push_str("    return DNSAction.None\n");
+                    lua.push_str("  end\n");
+                }
+            }
+        }
+
+        // Extract domain checks from expressions
+        let expr = rule.get("condition")
+            .and_then(|c| c.get("match"))
+            .and_then(|m| m.get("expr"))
+            .and_then(|e| e.as_str());
+
+        if let Some(expr_str) = expr {
+            // Check for domain.contains checks
+            if expr_str.contains("domain.contains") {
+                if expr_str.contains("malicious") {
+                    lua.push_str("  if string.find(qname, \"malicious\") then\n");
+                    lua.push_str("    return DNSAction.Drop\n");
+                    lua.push_str("  end\n");
+                }
+                if expr_str.contains("blocked") {
+                    lua.push_str("  if string.find(qname, \"blocked\") then\n");
+                    lua.push_str("    return DNSAction.Drop\n");
+                    lua.push_str("  end\n");
+                }
+            }
+        }
+
+        // Time-based conditions
+        if let Some(expr_str) = expr {
+            if expr_str.contains("time.hour") {
+                if expr_str.contains("< 18") {
+                    lua.push_str("  if current_hour >= 18 then\n");
+                    lua.push_str("    return DNSAction.Drop\n");
+                    lua.push_str("  end\n");
+                }
+            }
+        }
+
+        lua.push_str("  return DNSAction.None\n");
+        lua.push_str("end)\n");
+
+        Ok(lua)
+    }
+
+    fn convert_cerbos_expr_to_lua(&self, expr: &str) -> String {
+        // Simple expression converter - in production, use a proper parser
+        let mut lua = expr.to_string();
+        
+        // Replace common patterns
+        lua = lua.replace("request.time.hour", "current_hour");
+        lua = lua.replace("request.domain.contains", "string.find(qname");
+        lua = lua.replace("!", "not ");
+        lua = lua.replace("&&", " and ");
+        lua = lua.replace("||", " or ");
+        
+        // Handle contains with proper string matching
+        if lua.contains("string.find(qname") {
+            lua = lua.replace("\"", "'");
+            // Close the find call
+            if !lua.contains(")") {
+                lua = format!("{} ~= nil", lua);
+            }
+        }
+        
+        lua
+    }
 }
 
 #[async_trait]
@@ -230,9 +421,10 @@ impl ServicePlugin for DnsdistService {
                 }
             }
         } else if key.contains("/policies/") {
-            // Policy-based rules would be processed here
-            // Convert Cerbos policies to dnsdist Lua rules
-            debug!("Policy change detected, would generate dnsdist rule");
+            // Parse Cerbos policy and convert to dnsdist Lua rule
+            if let Err(e) = self.process_cerbos_policy(key, value).await {
+                error!("Failed to process Cerbos policy: {}", e);
+            }
         }
 
         Ok(())

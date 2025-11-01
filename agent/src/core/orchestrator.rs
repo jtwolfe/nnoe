@@ -29,7 +29,7 @@ impl Orchestrator {
         );
         info!("etcd client initialized");
 
-        // Initialize cache manager
+        // Initialize cache manager (will start background sweep task)
         let cache_manager = Arc::new(
             CacheManager::new(&config.cache)
                 .context("Failed to create cache manager")?,
@@ -86,6 +86,13 @@ impl Orchestrator {
 
     async fn register_services(&mut self) -> Result<()> {
         info!("Registering service plugins");
+
+        // Skip service registration for DB-only nodes
+        if matches!(self.config.node.role, crate::config::NodeRole::DbOnly) {
+            info!("DB-only node: Skipping service registration (DNS/DHCP/dnsdist)");
+            info!("This node will only maintain etcd replication and cache");
+            return Ok(());
+        }
 
         // Register DNS service (Knot) if enabled
         if let Some(ref dns_config) = self.config.services.dns {
@@ -161,6 +168,10 @@ impl Orchestrator {
             if lynis_config.enabled {
                 let node_id = self.config.node.node_id.clone();
                 let lynis_service = LynisService::new(lynis_config.clone(), node_id);
+                
+                // Set etcd client for Lynis service before initialization
+                lynis_service.set_etcd_client(Arc::clone(&self.etcd_client)).await;
+                
                 let plugin: Arc<RwLock<Box<dyn ServicePlugin + Send + Sync>>> = 
                     Arc::new(RwLock::new(Box::new(lynis_service)));
                 

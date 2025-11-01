@@ -30,10 +30,34 @@ ipnetwork.workspace = true
 config.workspace = true
 nix.workspace = true
 chrono.workspace = true
+rustls.workspace = true
+rustls-pemfile.workspace = true
+rustls-native-certs.workspace = true
+tonic.workspace = true
+prost.workspace = true
+uuid.workspace = true
+bincode = "1.3"
+serde_yaml.workspace = true
+
+[build-dependencies]
+tonic-build.workspace = true
 
 [dev-dependencies]
-mockall.workspace = true
-testcontainers.workspace = true
+# Test dependencies
+mockall = "0.12"
+tokio-test = "0.4"
+
+[[test]]
+name = "cache_test"
+path = "tests/cache_test.rs"
+
+[[test]]
+name = "etcd_test"
+path = "tests/etcd_test.rs"
+
+[[test]]
+name = "services_test"
+path = "tests/services_test.rs"
 
 [lib]
 name = "nnoe_agent"

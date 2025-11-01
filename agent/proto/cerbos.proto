@@ -1,0 +1,61 @@
+syntax = "proto3";
+
+package cerbos.svc.v1;
+
+service CerbosService {
+  rpc CheckResources(CheckResourcesRequest) returns (CheckResourcesResponse);
+}
+
+message CheckResourcesRequest {
+  string request_id = 1;
+  Principal principal = 2;
+  repeated Resource resources = 3;
+  AuxData aux_data = 4;
+}
+
+message CheckResourcesResponse {
+  string request_id = 1;
+  repeated ResourceCheckResult results = 2;
+}
+
+message Principal {
+  string id = 1;
+  repeated string roles = 2;
+  map<string, string> attr = 3;  // Simplified to string map
+}
+
+message Resource {
+  string kind = 1;
+  string policy_version = 2;
+  string id = 3;
+  map<string, string> attr = 4;  // Simplified to string map
+}
+
+message AuxData {
+  map<string, string> jwt = 1;  // Simplified to string map
+}
+
+message ResourceCheckResult {
+  string resource = 1;
+  repeated ActionEffect actions = 2;
+  repeated ValidationError validation_errors = 3;
+  map<string, string> meta = 4;  // Simplified to string map
+}
+
+message ActionEffect {
+  string action = 1;
+  Effect effect = 2;
+  string policy = 3;
+}
+
+enum Effect {
+  EFFECT_UNSPECIFIED = 0;
+  EFFECT_ALLOW = 1;
+  EFFECT_DENY = 2;
+}
+
+message ValidationError {
+  string path = 1;
+  string message = 2;
+  string source = 3;
+}

@@ -10,11 +10,12 @@ endpoints = ["http://127.0.0.1:2379"]
 prefix = "/nnoe"
 timeout_secs = 5
 
-# Optional TLS configuration
+# Optional TLS configuration for secure etcd connections
+# When TLS is configured, endpoints should use 'https://' instead of 'http://'
 # [etcd.tls]
-# ca_cert = "/etc/nnoe/certs/ca.crt"
-# cert = "/etc/nnoe/certs/client.crt"
-# key = "/etc/nnoe/certs/client.key"
+# ca_cert = "/etc/nnoe/certs/ca.crt"        # Path to CA certificate file
+# cert = "/etc/nnoe/certs/client.crt"        # Path to client certificate file (PEM format)
+# key = "/etc/nnoe/certs/client.key"         # Path to client private key file (PEM format)
 
 [cache]
 path = "/var/nnoe/cache"
@@ -33,17 +34,25 @@ enabled = true
 engine = "knot"
 config_path = "/etc/knot/knot.conf"
 zone_dir = "/var/lib/knot/zones"
+# listen_address = "0.0.0.0"  # Default: "0.0.0.0"
+# listen_port = 53            # Default: 53
 
 # [services.dhcp]
 # enabled = true
 # engine = "kea"
 # config_path = "/etc/kea/kea-dhcp4.conf"
+# interface = "eth0"           # Default: "eth0"
+# control_port = 8000          # Default: 8000
 # ha_pair_id = "pair-1"
 
 # [services.dnsdist]
 # enabled = true
 # config_path = "/etc/dnsdist/dnsdist.conf"
 # lua_script_path = "/etc/dnsdist/lua/rules.lua"
+# listen_address = "0.0.0.0"   # Default: "0.0.0.0"
+# listen_port = 53             # Default: 53
+# control_port = 5199          # Default: 5199
+# upstream_resolvers = ["127.0.0.1:5353", "8.8.8.8"]
 
 # [services.cerbos]
 # enabled = true

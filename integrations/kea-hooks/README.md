@@ -13,9 +13,28 @@ This hook synchronizes DHCP lease information with etcd for centralized tracking
 - Lease expiration events → etcd cleanup
 - Integration with Kea's lease database
 
-### Status
+### Building
 
-This hook will be implemented in Phase 3 as it requires C++ development for Kea hook API.
+**Prerequisites:**
+- Kea DHCP development headers
+- CMake 3.10+
+- libcurl-dev
+- libjsoncpp-dev
+- C++17 compiler
+
+**Build:**
+```bash
+./build.sh
+```
+
+This will create `build/libdhcp_etcd.so` which can be installed to `/usr/lib/kea/hooks/`.
+
+### Installation
+
+```bash
+sudo cp build/libdhcp_etcd.so /usr/lib/kea/hooks/
+sudo chmod 644 /usr/lib/kea/hooks/libdhcp_etcd.so
+```
 
 ### Usage
 

@@ -67,10 +67,13 @@ impl KnotService {
     async fn generate_config(&self) -> Result<()> {
         let zones = self.zones.read().await;
         
+        let listen_str = format!("{}@{}", self.config.listen_address, self.config.listen_port);
+        let listen_str_v6 = format!("::@{}", self.config.listen_port);
+        
         let knot_config = KnotConfig {
             server: KnotServerConfig {
                 rundir: "/var/lib/knot".to_string(),
-                listen: vec!["0.0.0.0@53".to_string(), "::@53".to_string()],
+                listen: vec![listen_str, listen_str_v6],
             },
             zone: zones
                 .values()

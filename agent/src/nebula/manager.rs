@@ -1,13 +1,16 @@
 use crate::config::NebulaConfig;
 use anyhow::{Context, Result};
 use std::process::{Child, Command, Stdio};
-use std::sync::Arc;
+use std::sync::{Arc, atomic::{AtomicBool, Ordering}};
 use tokio::sync::RwLock;
 use tracing::{error, info, warn};
 
 pub struct NebulaManager {
     config: NebulaConfig,
     process: Arc<RwLock<Option<Child>>>,
+    is_running_flag: Arc<AtomicBool>,
+    restart_count: Arc<std::sync::Mutex<u32>>,
+    max_restarts: u32,
 }
 
 impl NebulaManager {
@@ -23,6 +26,9 @@ impl NebulaManager {
         Ok(Self {
             config: config.clone(),
             process: Arc::new(RwLock::new(None)),
+            is_running_flag: Arc::new(AtomicBool::new(false)),
+            restart_count: Arc::new(std::sync::Mutex::new(0)),
+            max_restarts: 5,
         })
     }
 
@@ -50,14 +56,27 @@ impl NebulaManager {
             .stderr(Stdio::piped());
 
         let child = cmd.spawn().context("Failed to start Nebula process")?;
+        let pid = child.id();
 
         *process_guard = Some(child);
-        info!("Nebula process started");
+        self.is_running_flag.store(true, Ordering::Release);
+        info!("Nebula process started (PID: {})", pid);
 
-        // Spawn a task to monitor the process
+        // Spawn a task to monitor the process with automatic restart
         let process_clone = Arc::clone(&self.process);
+        let is_running_clone = Arc::clone(&self.is_running_flag);
+        let restart_count_clone = Arc::clone(&self.restart_count);
+        let config_clone = self.config.clone();
+        let max_restarts = self.max_restarts;
+        
         tokio::spawn(async move {
-            Self::monitor_process(process_clone).await;
+            Self::monitor_process_with_restart(
+                process_clone,
+                is_running_clone,
+                restart_count_clone,
+                config_clone,
+                max_restarts,
+            ).await;
         });
 
         Ok(())
@@ -68,8 +87,22 @@ impl NebulaManager {
 
         if let Some(mut child) = process_guard.take() {
             info!("Stopping Nebula process");
-            child.kill().context("Failed to kill Nebula process")?;
-            child.wait()?;
+            self.is_running_flag.store(false, Ordering::Release);
+            
+            // Try graceful shutdown first
+            if let Err(e) = child.kill() {
+                warn!("Failed to kill Nebula process gracefully: {}", e);
+            }
+            
+            // Wait for process to exit (with timeout)
+            tokio::time::timeout(
+                tokio::time::Duration::from_secs(5),
+                tokio::task::spawn_blocking(move || child.wait()),
+            )
+            .await
+            .context("Timeout waiting for Nebula to stop")?
+            .context("Failed to wait for Nebula process")??;
+            
             info!("Nebula process stopped");
         }
 
@@ -84,26 +117,58 @@ impl NebulaManager {
     }
 
     pub fn is_running(&self) -> bool {
-        // This is a simple check - in production, we might want to check the process status
-        // For now, we'll just check if we have a process handle
-        // Note: This is async-safe but the check itself is sync
-        // In a real implementation, we'd use a shared atomic boolean
-        false // Placeholder - will be improved
+        self.is_running_flag.load(Ordering::Acquire)
     }
 
-    async fn monitor_process(process: Arc<RwLock<Option<Child>>>) {
+    async fn monitor_process_with_restart(
+        process: Arc<RwLock<Option<Child>>>,
+        is_running_flag: Arc<AtomicBool>,
+        restart_count: Arc<std::sync::Mutex<u32>>,
+        config: NebulaConfig,
+        max_restarts: u32,
+    ) {
         loop {
             tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
 
-            let process_guard = process.read().await;
+            let mut process_guard = process.write().await;
             if let Some(ref mut child) = *process_guard {
                 match child.try_wait() {
                     Ok(Some(status)) => {
                         error!("Nebula process exited with status: {:?}", status);
-                        drop(process_guard);
-                        let mut write_guard = process.write().await;
-                        *write_guard = None;
-                        break;
+                        *process_guard = None;
+                        is_running_flag.store(false, Ordering::Release);
+                        
+                        // Check restart count
+                        let mut count = restart_count.lock().unwrap();
+                        if *count < max_restarts {
+                            *count += 1;
+                            warn!("Restarting Nebula (attempt {}/{})", *count, max_restarts);
+                            
+                            drop(process_guard);
+                            
+                            // Exponential backoff
+                            let delay = std::cmp::min(2u64.pow(*count as u32), 60);
+                            tokio::time::sleep(tokio::time::Duration::from_secs(delay)).await;
+                            
+                            // Attempt restart
+                            if let Some(ref config_path) = config.config_path {
+                                match Self::attempt_restart(config_path).await {
+                                    Ok(new_child) => {
+                                        let mut guard = process.write().await;
+                                        *guard = Some(new_child);
+                                        is_running_flag.store(true, Ordering::Release);
+                                        *count = 0; // Reset on successful restart
+                                        info!("Nebula process restarted successfully");
+                                    }
+                                    Err(e) => {
+                                        error!("Failed to restart Nebula: {}", e);
+                                    }
+                                }
+                            }
+                        } else {
+                            error!("Nebula process failed {} times, giving up", max_restarts);
+                            break;
+                        }
                     }
                     Ok(None) => {
                         // Process still running
@@ -111,21 +176,48 @@ impl NebulaManager {
                     }
                     Err(e) => {
                         error!("Error checking Nebula process status: {}", e);
+                        is_running_flag.store(false, Ordering::Release);
                         break;
                     }
                 }
             } else {
+                // Process not started or stopped
+                is_running_flag.store(false, Ordering::Release);
                 break;
             }
         }
+    }
+
+    async fn attempt_restart(config_path: &str) -> Result<Child> {
+        let mut cmd = Command::new("nebula");
+        cmd.arg("-config")
+            .arg(config_path)
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
+        
+        cmd.spawn().context("Failed to restart Nebula process")
     }
 }
 
 impl Drop for NebulaManager {
     fn drop(&mut self) {
-        // Note: Drop is sync, but we need async cleanup
-        // In production, we'd use a blocking runtime or handle this differently
-        warn!("NebulaManager dropped - process cleanup should be handled manually");
+        // Try to stop the process synchronously if possible
+        // This is best-effort cleanup
+        if self.is_running_flag.load(Ordering::Acquire) {
+            warn!("NebulaManager being dropped while process is running");
+            // Attempt to kill the process using a blocking runtime handle
+            if let Ok(handle) = tokio::runtime::Handle::try_current() {
+                if let Ok(guard) = handle.block_on(async { self.process.write().await }) {
+                    if let Some(mut child) = guard.as_ref() {
+                        let _ = std::process::Command::new("kill")
+                            .arg("-TERM")
+                            .arg(child.id().to_string())
+                            .output();
+                    }
+                }
+            }
+        }
     }
 }
 

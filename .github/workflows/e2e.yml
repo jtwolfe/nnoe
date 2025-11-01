@@ -1,4 +1,4 @@
-name: E2E Tests
+name: End-to-End Tests
 
 on:
   push:
@@ -9,53 +9,39 @@ on:
 
 jobs:
   e2e:
-    name: End-to-End Tests
     runs-on: ubuntu-latest
-    
-    services:
-      etcd:
-        image: quay.io/coreos/etcd:v3.5.9
-        env:
-          ETCD_NAME: etcd-server
-          ETCD_DATA_DIR: /etcd-data
-          ETCD_LISTEN_CLIENT_URLS: http://0.0.0.0:2379
-          ETCD_ADVERTISE_CLIENT_URLS: http://localhost:2379
-          ETCD_LISTEN_PEER_URLS: http://0.0.0.0:2380
-          ETCD_INITIAL_ADVERTISE_PEER_URLS: http://localhost:2380
-          ETCD_INITIAL_CLUSTER: etcd-server=http://localhost:2380
-          ETCD_INITIAL_CLUSTER_TOKEN: etcd-cluster-1
-          ETCD_INITIAL_CLUSTER_STATE: new
-        ports:
-          - 2379:2379
-          - 2380:2380
-        options: >-
-          --health-cmd "etcdctl endpoint health"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
     
     steps:
     - uses: actions/checkout@v4
     
-    - name: Install Rust
+    - name: Install Rust toolchain
       uses: dtolnay/rust-toolchain@stable
     
     - name: Install Docker Compose
       run: |
-        sudo curl -L "https://github.com/docker/compose/releases/latest/download/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
+        sudo curl -L "https://github.com/docker/compose/releases/download/v2.20.0/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
         sudo chmod +x /usr/local/bin/docker-compose
     
-    - name: Build agent
-      run: cargo build --release
+    - name: Start test environment
+      run: |
+        cd testing/integration/e2e
+        docker-compose up -d
+    
+    - name: Wait for services
+      run: |
+        sleep 10
+        docker-compose -f testing/integration/e2e/docker-compose.yml ps
     
     - name: Run E2E tests
       run: |
-        cd testing/integration/e2e
-        # E2E tests will be implemented in Phase 4
-        echo "E2E tests pending implementation"
+        cargo test --test e2e_tests --package nnoe-agent -- --test-threads=1
+    
+    - name: Collect logs on failure
+      if: failure()
+      run: |
+        docker-compose -f testing/integration/e2e/docker-compose.yml logs
     
     - name: Cleanup
       if: always()
       run: |
-        docker-compose -f testing/integration/e2e/docker-compose.yml down || true
-
+        docker-compose -f testing/integration/e2e/docker-compose.yml down -v

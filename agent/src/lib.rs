@@ -7,4 +7,5 @@ pub mod nebula;
 pub mod plugin;
 pub mod sled_cache;
 pub mod services;
+pub mod util;
 

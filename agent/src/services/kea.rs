@@ -94,7 +94,7 @@ impl KeaService {
         let kea_config = KeaConfig {
             Dhcp4: KeaDhcp4Config {
                 interfaces_config: KeaInterfacesConfig {
-                    interfaces: vec!["eth0".to_string()],
+                    interfaces: vec![self.config.interface.clone()],
                 },
                 lease_database: KeaLeaseDatabase {
                     db_type: "memfile".to_string(),
@@ -154,7 +154,7 @@ impl KeaService {
             .arg("--host")
             .arg("localhost")
             .arg("--port")
-            .arg("8000")
+            .arg(&self.config.control_port.to_string())
             .arg("--service")
             .arg("dhcp4")
             .arg("config-reload")
@@ -235,12 +235,116 @@ impl KeaService {
     }
 
     async fn handle_ha_coordination(&self) -> Result<()> {
-        if let Some(ref ha_pair_id) = self.config.ha_pair_id {
-            debug!("HA pair coordination for: {}", ha_pair_id);
-            // HA pair coordination logic would go here
-            // This would involve Keepalived VIP management and peer communication
+        if self.config.ha_pair_id.is_none() {
+            return Ok(()); // Not in HA mode
         }
+
+        let ha_pair_id = self.config.ha_pair_id.as_ref().unwrap();
+        debug!("HA pair coordination for: {}", ha_pair_id);
+
+        // Check VIP status
+        let has_vip = self.check_vip().await.unwrap_or(false);
+        self.has_vip.store(has_vip, Ordering::Release);
+
+        // Check peer status
+        let peer_state = self.check_peer_status().await?;
+
+        let mut ha_state_guard = self.ha_state.write().await;
+        let mut service_running_guard = self.service_running.write().await;
+
+        // Determine our state
+        let new_state = if has_vip {
+            HaState::Primary
+        } else if peer_state == Some(HaState::Primary) {
+            HaState::Standby
+        } else {
+            // No clear primary, try to become primary if we don't see a peer
+            if peer_state.is_none() {
+                HaState::Primary // Assume primary if no peer seen
+            } else {
+                HaState::Standby
+            }
+        };
+
+        let state_changed = *ha_state_guard != new_state;
+        *ha_state_guard = new_state;
+
+        // Start/stop service based on HA state
+        match *ha_state_guard {
+            HaState::Primary => {
+                if !*service_running_guard {
+                    info!("Becoming primary, starting Kea service");
+                    self.start_kea().await?;
+                    *service_running_guard = true;
+                }
+            }
+            HaState::Standby => {
+                if *service_running_guard {
+                    info!("Becoming standby, stopping Kea service");
+                    self.stop_kea().await?;
+                    *service_running_guard = false;
+                }
+            }
+            HaState::Unknown => {
+                warn!("HA state unknown, keeping service as-is");
+            }
+        }
+
+        drop(service_running_guard);
+        drop(ha_state_guard);
+
+        // Update status in etcd
+        self.update_ha_status_in_etcd().await?;
+
+        if state_changed {
+            info!("HA state changed to: {:?}", new_state);
+        }
+
         Ok(())
+    }
+
+    async fn start_kea(&self) -> Result<()> {
+        // Start Kea DHCP service
+        let output = Command::new("systemctl")
+            .arg("start")
+            .arg("kea-dhcp4")
+            .output();
+
+        match output {
+            Ok(output) if output.status.success() => {
+                info!("Kea DHCP service started");
+                Ok(())
+            }
+            Ok(output) => {
+                let stderr = String::from_utf8_lossy(&output.stderr);
+                Err(anyhow::anyhow!("Failed to start Kea: {}", stderr))
+            }
+            Err(e) => Err(anyhow::anyhow!("Failed to execute systemctl: {}", e)),
+        }
+    }
+
+    async fn stop_kea(&self) -> Result<()> {
+        // Stop Kea DHCP service
+        let output = Command::new("systemctl")
+            .arg("stop")
+            .arg("kea-dhcp4")
+            .output();
+
+        match output {
+            Ok(output) if output.status.success() => {
+                info!("Kea DHCP service stopped");
+                Ok(())
+            }
+            Ok(output) => {
+                let stderr = String::from_utf8_lossy(&output.stderr);
+                warn!("Failed to stop Kea gracefully: {}", stderr);
+                Ok(()) // Non-fatal
+            }
+            Err(e) => {
+                warn!("Failed to execute systemctl: {}", e);
+                Ok(()) // Non-fatal
+            }
+        }
     }
 }
 

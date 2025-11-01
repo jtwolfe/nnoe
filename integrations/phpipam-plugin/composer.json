@@ -1,0 +1,25 @@
+{
+    "name": "nnoe/phpipam-plugin",
+    "description": "NNOE (New Network Orchestration Engine) Plugin for phpIPAM",
+    "type": "phpipam-plugin",
+    "license": "Apache-2.0",
+    "authors": [
+        {
+            "name": "NNOE Contributors",
+            "homepage": "https://github.com/nnoe/nnoe"
+        }
+    ],
+    "require": {
+        "php": ">=7.4",
+        "guzzlehttp/guzzle": "^7.0"
+    },
+    "autoload": {
+        "psr-4": {
+            "NNOE\\": "src/"
+        }
+    },
+    "config": {
+        "optimize-autoloader": true
+    }
+}
+

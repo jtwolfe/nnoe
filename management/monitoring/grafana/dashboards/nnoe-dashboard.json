@@ -1,0 +1,113 @@
+{
+  "dashboard": {
+    "title": "NNOE Dashboard",
+    "tags": ["nnoe", "dns", "dhcp", "ddi"],
+    "timezone": "browser",
+    "panels": [
+      {
+        "id": 1,
+        "title": "Agent Uptime",
+        "type": "stat",
+        "targets": [
+          {
+            "expr": "nnoe_agent_uptime_seconds",
+            "legendFormat": "Uptime"
+          }
+        ],
+        "gridPos": {"h": 4, "w": 6, "x": 0, "y": 0}
+      },
+      {
+        "id": 2,
+        "title": "etcd Connections",
+        "type": "stat",
+        "targets": [
+          {
+            "expr": "nnoe_agent_etcd_connections",
+            "legendFormat": "Connections"
+          }
+        ],
+        "gridPos": {"h": 4, "w": 6, "x": 6, "y": 0}
+      },
+      {
+        "id": 3,
+        "title": "Cache Size",
+        "type": "graph",
+        "targets": [
+          {
+            "expr": "nnoe_agent_cache_size_bytes",
+            "legendFormat": "Cache Size (bytes)"
+          },
+          {
+            "expr": "nnoe_agent_cache_size_entries",
+            "legendFormat": "Cache Entries"
+          }
+        ],
+        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 4}
+      },
+      {
+        "id": 4,
+        "title": "DNS Query Rate",
+        "type": "graph",
+        "targets": [
+          {
+            "expr": "rate(nnoe_dns_query_rate[5m])",
+            "legendFormat": "Queries/sec"
+          }
+        ],
+        "gridPos": {"h": 8, "w": 12, "x": 12, "y": 4}
+      },
+      {
+        "id": 5,
+        "title": "DHCP Leases",
+        "type": "graph",
+        "targets": [
+          {
+            "expr": "nnoe_dhcp_lease_count",
+            "legendFormat": "Active Leases"
+          }
+        ],
+        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 12}
+      },
+      {
+        "id": 6,
+        "title": "Blocked Queries",
+        "type": "graph",
+        "targets": [
+          {
+            "expr": "rate(nnoe_blocked_queries_total[5m])",
+            "legendFormat": "Blocked/sec"
+          }
+        ],
+        "gridPos": {"h": 8, "w": 12, "x": 12, "y": 12}
+      },
+      {
+        "id": 7,
+        "title": "Config Updates",
+        "type": "graph",
+        "targets": [
+          {
+            "expr": "rate(nnoe_agent_config_updates_total[5m])",
+            "legendFormat": "Updates/sec"
+          }
+        ],
+        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 20}
+      },
+      {
+        "id": 8,
+        "title": "Service Reloads",
+        "type": "graph",
+        "targets": [
+          {
+            "expr": "rate(nnoe_agent_service_reloads_total[5m])",
+            "legendFormat": "Reloads/sec"
+          }
+        ],
+        "gridPos": {"h": 8, "w": 12, "x": 12, "y": 20}
+      }
+    ],
+    "refresh": "10s",
+    "schemaVersion": 27,
+    "version": 1
+  }
+}
+

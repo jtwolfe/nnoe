@@ -11,6 +11,7 @@ name = "misp-sync"
 path = "src/main.rs"
 
 [dependencies]
+nnoe-agent = { path = "../../agent" }
 tokio.workspace = true
 serde.workspace = true
 serde_json.workspace = true
@@ -19,6 +20,6 @@ thiserror.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
 etcd-client.workspace = true
-reqwest = { version = "0.11", features = ["json"] }
+reqwest.workspace = true
 chrono.workspace = true
 

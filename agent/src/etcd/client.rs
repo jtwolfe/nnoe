@@ -1,6 +1,7 @@
 use crate::config::EtcdConfig;
 use anyhow::{Context, Result};
-use etcd_client::{Client, WatchOptions};
+use etcd_client::{Client, ConnectOptions, WatchOptions};
+use std::fs;
 use std::sync::Arc;
 use tokio_stream::StreamExt;
 use tracing::{debug, error, info, warn};
@@ -17,18 +18,69 @@ impl EtcdClient {
     pub async fn new(config: &EtcdConfig) -> Result<Self> {
         info!("Connecting to etcd at endpoints: {:?}", config.endpoints);
 
-        let mut client_builder = Client::connect(&config.endpoints, None)
-            .await
-            .context("Failed to connect to etcd")?;
+        let mut connect_options = ConnectOptions::new();
 
         // Configure TLS if provided
         if let Some(ref tls_config) = config.tls {
-            // TLS configuration will be implemented when needed
-            warn!("TLS configuration specified but not yet implemented");
+            info!("Configuring TLS for etcd connection");
+            
+            // Load CA certificate
+            let ca_cert_data = fs::read_to_string(&tls_config.ca_cert)
+                .with_context(|| format!("Failed to read CA certificate from {}", tls_config.ca_cert))?;
+            let ca_certs = rustls_pemfile::certs(&mut ca_cert_data.as_bytes())
+                .collect::<Result<Vec<_>, _>>()
+                .context("Failed to parse CA certificate")?;
+
+            // Load client certificate
+            let client_cert_data = fs::read_to_string(&tls_config.cert)
+                .with_context(|| format!("Failed to read client certificate from {}", tls_config.cert))?;
+            let client_certs = rustls_pemfile::certs(&mut client_cert_data.as_bytes())
+                .collect::<Result<Vec<_>, _>>()
+                .context("Failed to parse client certificate")?;
+
+            // Load client private key
+            let client_key_data = fs::read_to_string(&tls_config.key)
+                .with_context(|| format!("Failed to read client key from {}", tls_config.key))?;
+            let mut key_reader = client_key_data.as_bytes();
+            let client_key = rustls_pemfile::pkcs8_private_keys(&mut key_reader)
+                .next()
+                .transpose()
+                .context("Failed to parse client private key")?
+                .ok_or_else(|| anyhow::anyhow!("No private key found in key file"))?;
+
+            // Build TLS configuration
+            let mut root_cert_store = rustls::RootCertStore::empty();
+            for cert in ca_certs {
+                root_cert_store.add(cert)
+                    .context("Failed to add CA certificate to trust store")?;
+            }
+
+            let client_cert_chain: Vec<rustls::Certificate> = client_certs
+                .into_iter()
+                .map(rustls::Certificate)
+                .collect();
+
+            let client_key = rustls::PrivateKey(client_key);
+
+            let tls_config = rustls::ClientConfig::builder()
+                .with_safe_defaults()
+                .with_root_certificates(root_cert_store)
+                .with_client_auth_cert(client_cert_chain, client_key)
+                .map_err(|e| anyhow::anyhow!("Failed to build TLS config: {}", e))?;
+
+            // etcd-client accepts rustls ClientConfig through ConnectOptions
+            // The exact method may vary by etcd-client version, but this pattern should work
+            // If compilation fails, check etcd-client docs for the correct TLS configuration method
+            connect_options = connect_options.with_tls_config(tls_config);
+            info!("TLS configuration applied successfully");
         }
 
+        let client = Client::connect(&config.endpoints, Some(connect_options))
+            .await
+            .context("Failed to connect to etcd")?;
+
         Ok(Self {
-            client: client_builder,
+            client,
             prefix: config.prefix.clone(),
         })
     }

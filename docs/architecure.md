@@ -13,18 +13,28 @@ Scales to enterprise: 100+ nodes, millions QPS, IPv6 native. OSS, no vendor lock
 #### Component Breakdown
 - **Management Nodes**: 3+ HA replicas (active-active via load-balancer, e.g., HAProxy). Run phpIPAM (IPAM/UI), etcd leader, Nebula lighthouses, MISP server. Addressable individually (IPs) or via VIP. Sync configs to etcd; handle UI/automation.
 - **DB-Only Agents**: Replica nodes running etcd followers + sled (for local reads) + Nebula client. No services (DNS/DHCP); focus on replication/quorum (survive 50% loss). Configurable via etcd flags (role=db-only).
-- **Active Agents**: Rust binaries on service nodes; embed sled, raft-rs (etcd client), Nebula. Pull etcd configs, generate/run Knot/Kea/dnsdist. HA pairs (e.g., 4 agents → 2 pairs with Keepalived VIP failover). Run Lynis audits periodically.
+- **Active Agents**: Rust binaries on service nodes; embed sled (with TTL/eviction), etcd client (TLS support via rustls), Nebula (with process monitoring/auto-restart). Pull etcd configs, generate/run Knot/Kea/dnsdist. HA pairs (e.g., 4 agents → 2 pairs with Keepalived VIP failover, state coordination via etcd). Run Lynis audits periodically. Support configurable ports/addresses for all services.
 - **Network**: Nebula overlay for control (etcd gossip, cert exchanges; virtual IPs e.g., 192.168.100.0/24). Data plane on host interfaces (eth0). Firewall isolation (nftables DROP non-Nebula for control ports).
 
 #### Communication Specs
-- **Protocols**: etcd gRPC (ports 2379-2380, TLS-encrypted) for KV watches/pushes; Nebula UDP (4194) for NAT traversal/P2P tunnels; phpIPAM REST API (HTTPS) for UI/etcd sync; Cerbos gRPC (8222) for policy queries; MISP REST (5000) for feeds; Knot/Kea JSON over Unix sockets from agents.
+- **Protocols**: 
+  - etcd gRPC (ports 2379-2380, TLS-encrypted with rustls) for KV watches/pushes
+  - Nebula UDP (4194) for NAT traversal/P2P tunnels
+  - phpIPAM REST API (HTTPS) for UI/etcd sync
+  - Cerbos gRPC (8222, via tonic) for policy queries
+  - MISP REST (5000) for feeds
+  - Knot/Kea JSON over Unix sockets from agents
+  - Prometheus HTTP (9090) for metrics export
 - **Flows**:
-  - Management → etcd: Push configs (zones/subnets/policies) via gRPC Put/Watch.
-  - Agents → etcd: Watch prefixes (e.g., /dns/zones), pull on changes (<100ms latency).
-  - Agents → Cerbos: gRPC CheckResources for query decisions (e.g., allow IoT access?).
-  - MISP → etcd: Cron pushes feeds to KV (/threats/domains) for dnsdist RPZ.
-  - Lynis → phpIPAM: Audit logs via API for UI reports.
-  - Nebula: Cert exchanges via etcd (/nebula/certs); lighthouses advertise for hole-punching.
+  - Management → etcd: Push configs (zones/subnets/policies) via gRPC Put/Watch (TLS-encrypted).
+  - Agents → etcd: Watch prefixes (e.g., /dns/zones), pull on changes (<100ms latency). TLS client cert auth.
+  - Agents → Cerbos: gRPC CheckResources (tonic client) for query decisions (e.g., allow IoT access?). Policies converted to dnsdist Lua rules.
+  - MISP → etcd: Sync service pushes feeds to KV (/threats/domains) for dnsdist RPZ, with retry/backoff.
+  - Kea Hooks → etcd: Lease events (offer/renew/release) via libdhcp_etcd.so hook.
+  - HA Coordination: Kea HA pairs coordinate via etcd (/dhcp/ha-pairs/{id}/nodes/{node}), VIP detection via ip addr, state machine (Primary/Standby).
+  - Lynis → etcd: Audit reports pushed to /audit/lynis/{node} with periodic scheduling.
+  - Monitoring: Prometheus exporter exposes metrics on port 9090, Grafana dashboards for visualization.
+  - Nebula: Cert exchanges via etcd (/nebula/certs); lighthouses advertise for hole-punching. Auto-restart on failure with exponential backoff.
 - **Security**: All inter-node via Nebula (AES-256, cert-auth); etcd ACLs; audit trails in etcd (/audit/logs).
 
 #### Full-Featured UI Details
@@ -38,34 +48,47 @@ phpIPAM provides a responsive web UI (PHP/MySQL backend), extended for NNOE via 
 - **Extensions**: Custom PHP plugins for etcd integration (e.g., watch hooks); Grafana embeds for metrics. Deploy via Docker; HA with MySQL replication.
 
 #### Code Examples
-**Rust Agent Binary** (embeds sled, raft-rs for etcd, Nebula spawn; ~300 LOC core):
+**Rust Agent Binary** (embeds sled with TTL/eviction, etcd client with TLS, Nebula with monitoring; ~1000+ LOC):
 ```rust
 use sled::Db;
-use etcd_client::{Client, WatchOptions};
+use etcd_client::{Client, ConnectOptions, WatchOptions};
+use rustls::ClientConfig;
 use std::process::Command;
 use tokio::main;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // Embed sled for local cache
-    let db: Db = sled::open("/var/nnoe/cache")?;
-    db.insert("config_key", "initial_value")?; // ACID-safe KV
+    // Embed sled for local cache with TTL
+    let cache = CacheManager::new(&CacheConfig {
+        path: "/var/nnoe/cache".to_string(),
+        default_ttl_secs: 300,
+        max_size_mb: 100,
+    })?;
+    cache.put("config_key", b"initial_value")?; // TTL-tracked entry
 
-    // etcd client with Raft embed (via raft-rs)
-    let client = Client::connect(["http://etcd-leader:2379"], None).await?;
-    let mut watcher = client.watch(" /dns/zones", Some(WatchOptions::default())).await?;
+    // etcd client with TLS
+    let mut connect_opts = ConnectOptions::new();
+    if let Some(tls_config) = load_tls_config() {
+        connect_opts = connect_opts.with_tls_config(tls_config);
+    }
+    let client = Client::connect(["https://etcd-leader:2379"], Some(connect_opts)).await?;
+    let mut watcher = client.watch("/dns/zones", Some(WatchOptions::default())).await?;
     
-    // Spawn Nebula as subprocess
-    Command::new("nebula").arg("-config").arg("/etc/nebula/config.yml").spawn()?;
+    // Spawn Nebula with monitoring
+    let nebula = NebulaManager::new(&config).await?;
+    nebula.start().await?; // Auto-restart on failure
 
     // Watch loop for runtime ops
     while let Some(resp) = watcher.message().await? {
         for event in resp.events() {
             if let Some(value) = event.kv().and_then(|kv| kv.value()) {
-                db.insert(event.kv().unwrap().key(), value)?; // Cache update
+                cache.put(&event.kv().unwrap().key_str()?, value)?; // TTL-tracked
                 // Recompile configs (e.g., Knot JSON)
-                generate_knot_config(&db)?;
-                // Restart services (Knot/Kea/dnsdist)
+                generate_knot_config(&cache)?;
+                // Restart services with HA coordination
+                if in_ha_mode() {
+                    handle_ha_coordination().await?;
+                }
                 restart_services()?;
             }
         }
@@ -73,13 +96,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-fn generate_knot_config(db: &Db) -> Result<(), sled::Error> {
-    // Pull from sled/etcd cache, write to /etc/knot/knot.conf
-    Ok(())
-}
-
-fn restart_services() -> Result<(), std::io::Error> {
-    Command::new("systemctl").arg("restart").arg("knot kea dnsdist").output()?;
+async fn handle_ha_coordination() -> Result<()> {
+    let has_vip = check_vip().await?;
+    if has_vip {
+        // Primary: start services
+        start_kea().await?;
+    } else {
+        // Standby: stop services
+        stop_kea().await?;
+    }
+    update_ha_status_in_etcd().await?;
     Ok(())
 }
 ```

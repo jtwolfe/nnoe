@@ -5,6 +5,14 @@ use std::time::Duration;
 use tokio::time::{interval, sleep};
 use tracing::{error, info, warn};
 
+// Retry configuration
+const RETRY_CONFIG: nnoe_agent::util::retry::RetryConfig = nnoe_agent::util::retry::RetryConfig {
+    max_retries: 3,
+    initial_delay_ms: 500,
+    max_delay_ms: 5000,
+    multiplier: 2.0,
+};
+
 #[derive(Debug, Clone)]
 struct Config {
     misp_url: String,
@@ -85,7 +93,8 @@ async fn main() -> Result<()> {
                 info!("Synced {} threat domains from MISP", count);
             }
             Err(e) => {
-                error!("MISP sync failed: {}", e);
+                error!("MISP sync failed after retries: {}", e);
+                // Continue running - will retry on next interval
             }
         }
     }
@@ -125,8 +134,13 @@ fn load_config() -> Result<Config> {
 async fn sync_misp_to_etcd(config: &Config, etcd_client: &mut Client) -> Result<usize> {
     info!("Fetching threat feeds from MISP");
 
-    // Fetch MISP events
-    let events = fetch_misp_events(config).await?;
+    // Fetch MISP events with retry
+    let events = nnoe_agent::util::retry::retry_with_backoff(
+        &RETRY_CONFIG,
+        || fetch_misp_events(config),
+        "fetch_misp_events",
+    )
+    .await?;
     info!("Fetched {} events from MISP", events.len());
 
     let mut threat_count = 0;
@@ -151,14 +165,25 @@ async fn sync_misp_to_etcd(config: &Config, etcd_client: &mut Client) -> Result<
             let key = format!("{}/threats/domains/{}", config.etcd_prefix, threat_data.domain);
             let value = serde_json::to_string(&threat_data)?;
 
-            kv_client
-                .put(
-                    key,
-                    value,
-                    Some(PutOptions::new().with_prev_kv()),
-                )
-                .await
-                .context(format!("Failed to put threat to etcd: {}", threat_data.domain))?;
+            // Retry etcd put operations
+            let result = nnoe_agent::util::retry::retry_with_backoff(
+                &RETRY_CONFIG,
+                || async {
+                    let mut kv = etcd_client.kv_client();
+                    kv.put(
+                        key.clone(),
+                        value.clone(),
+                        Some(PutOptions::new().with_prev_kv()),
+                    )
+                    .await
+                    .context(format!("Failed to put threat to etcd: {}", threat_data.domain))
+                },
+                &format!("put_threat_{}", threat_data.domain),
+            )
+            .await?;
+            
+            // Check if result indicates success (etcd put doesn't return a value on success, just Ok(()))
+            let _ = result;
 
             threat_count += 1;
         }
