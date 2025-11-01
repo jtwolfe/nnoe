@@ -1,0 +1,90 @@
+# Rust
+/target/
+**/*.rs.bk
+*.pdb
+Cargo.lock
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Build artifacts
+*.o
+*.so
+*.dylib
+*.dll
+
+# Test artifacts
+*.log
+*.test
+/tmp/
+
+# Environment
+.env
+.env.local
+*.local
+
+# Docker
+*.pid
+docker-compose.override.yml
+
+# Kubernetes
+*.kubeconfig
+
+# Certificates and keys (never commit these)
+*.key
+*.crt
+*.pem
+*.p12
+*.pfx
+ca.crt
+ca.key
+/nebula/certs/
+/certs/
+
+# Logs
+*.log
+logs/
+
+# Temporary files
+*.tmp
+*.temp
+
+# OS
+Thumbs.db
+.DS_Store
+
+# Ansible
+*.retry
+.vault_pass
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+env/
+
+# PHP
+vendor/
+composer.lock
+
+# Node
+node_modules/
+package-lock.json
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+
+# Cache directories
+.cache/
+/var/nnoe/cache/
+

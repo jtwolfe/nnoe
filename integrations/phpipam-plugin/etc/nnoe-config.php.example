@@ -1,0 +1,25 @@
+<?php
+/**
+ * NNOE Plugin Configuration
+ * 
+ * Copy this file to nnoe-config.php and update with your settings
+ */
+
+// etcd endpoints (comma-separated)
+define('NNOE_ETCD_ENDPOINTS', 'http://127.0.0.1:2379,http://127.0.0.1:2379');
+
+// etcd key prefix
+define('NNOE_ETCD_PREFIX', '/nnoe');
+
+// Enable/disable features
+define('NNOE_ENABLE_DNS_MANAGEMENT', true);
+define('NNOE_ENABLE_DHCP_MANAGEMENT', true);
+define('NNOE_ENABLE_THREAT_VIEWER', true);
+define('NNOE_ENABLE_NEBULA_TOPOLOGY', true);
+
+// Dashboard refresh interval (seconds)
+define('NNOE_DASHBOARD_REFRESH', 30);
+
+// Prometheus metrics endpoint (optional)
+define('NNOE_PROMETHEUS_ENDPOINT', 'http://localhost:9090');
+

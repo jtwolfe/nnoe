@@ -1,0 +1,24 @@
+[package]
+name = "nnoe-misp-sync"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "misp-sync"
+path = "src/main.rs"
+
+[dependencies]
+tokio.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+anyhow.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+etcd-client.workspace = true
+reqwest = { version = "0.11", features = ["json"] }
+chrono.workspace = true
+

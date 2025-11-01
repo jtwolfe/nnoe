@@ -1,0 +1,41 @@
+[package]
+name = "nnoe-agent"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "nnoe-agent"
+path = "src/main.rs"
+
+[dependencies]
+# Workspace dependencies
+tokio.workspace = true
+tokio-stream.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+serde_yaml.workspace = true
+toml.workspace = true
+etcd-client.workspace = true
+sled.workspace = true
+clap.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+anyhow.workspace = true
+thiserror.workspace = true
+async-trait.workspace = true
+ipnetwork.workspace = true
+config.workspace = true
+nix.workspace = true
+chrono.workspace = true
+
+[dev-dependencies]
+mockall.workspace = true
+testcontainers.workspace = true
+
+[lib]
+name = "nnoe_agent"
+path = "src/lib.rs"
+

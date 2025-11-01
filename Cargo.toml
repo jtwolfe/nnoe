@@ -1,0 +1,68 @@
+[workspace]
+members = [
+    "agent",
+    "integrations/misp-sync",
+]
+resolver = "2"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+authors = ["NNOE Contributors"]
+license = "Apache-2.0"
+repository = "https://github.com/nnoe/nnoe"
+
+[workspace.dependencies]
+# Async runtime
+tokio = { version = "1.35", features = ["full"] }
+tokio-stream = "0.1"
+
+# Serialization
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+serde_yaml = "0.9"
+toml = "0.8"
+
+# etcd client
+etcd-client = "0.11"
+
+# Embedded cache
+sled = "0.34"
+
+# CLI
+clap = { version = "4.4", features = ["derive"] }
+
+# Logging and tracing
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+
+# Error handling
+anyhow = "1.0"
+thiserror = "1.0"
+
+# Async utilities
+async-trait = "0.1"
+
+# Network/IP utilities
+ipnetwork = "0.20"
+
+# Configuration
+config = "0.14"
+
+# Process management
+nix = { version = "0.27", features = ["process", "signal"] }
+
+# Time utilities
+chrono = { version = "0.4", features = ["serde"] }
+
+# Testing
+mockall = "0.12"
+testcontainers = "0.16"
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+unused_import_braces = "warn"
+unused_qualifications = "warn"
+unused_results = "warn"
+warnings = "warn"
+

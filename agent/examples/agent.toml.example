@@ -1,0 +1,62 @@
+# NNOE Agent Configuration Example
+
+[node]
+name = "nnoe-node-1"
+role = "active"  # Options: "management", "db-only", "active"
+# node_id = "optional-node-id"
+
+[etcd]
+endpoints = ["http://127.0.0.1:2379"]
+prefix = "/nnoe"
+timeout_secs = 5
+
+# Optional TLS configuration
+# [etcd.tls]
+# ca_cert = "/etc/nnoe/certs/ca.crt"
+# cert = "/etc/nnoe/certs/client.crt"
+# key = "/etc/nnoe/certs/client.key"
+
+[cache]
+path = "/var/nnoe/cache"
+default_ttl_secs = 300
+max_size_mb = 100
+
+[nebula]
+enabled = false
+config_path = "/etc/nebula/config.yml"
+# cert_path = "/etc/nnoe/nebula/node.crt"
+# key_path = "/etc/nnoe/nebula/node.key"
+# lighthouse_hosts = ["192.168.100.1"]
+
+[services.dns]
+enabled = true
+engine = "knot"
+config_path = "/etc/knot/knot.conf"
+zone_dir = "/var/lib/knot/zones"
+
+# [services.dhcp]
+# enabled = true
+# engine = "kea"
+# config_path = "/etc/kea/kea-dhcp4.conf"
+# ha_pair_id = "pair-1"
+
+# [services.dnsdist]
+# enabled = true
+# config_path = "/etc/dnsdist/dnsdist.conf"
+# lua_script_path = "/etc/dnsdist/lua/rules.lua"
+
+# [services.cerbos]
+# enabled = true
+# endpoint = "http://localhost:8222"
+# timeout_secs = 2
+
+# [services.lynis]
+# enabled = true
+# audit_interval_secs = 86400
+# report_path = "/var/log/nnoe/lynis-report.log"
+
+[logging]
+level = "info"  # Options: "trace", "debug", "info", "warn", "error"
+json = false
+# file = "/var/log/nnoe/agent.log"
+

@@ -1,0 +1,27 @@
+apiVersion: api.cerbos.dev/v1
+
+resourcePolicy:
+  version: default
+  resource: dns_query
+  rules:
+    - actions: ['allow']
+      effect: EFFECT_ALLOW
+      roles: ['internal']
+      condition:
+        match:
+          expr: request.network_segment == "internal"
+    - actions: ['deny']
+      effect: EFFECT_DENY
+      roles: ['guest']
+      condition:
+        match:
+          expr: request.domain.contains("internal")
+    - actions: ['allow']
+      effect: EFFECT_ALLOW
+      roles: ['dmz']
+      condition:
+        match:
+          expr: |
+            request.network_segment == "dmz" &&
+            !request.domain.contains("internal")
+
