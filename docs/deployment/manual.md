@@ -5,7 +5,7 @@ Step-by-step guide for manual installation of NNOE on bare metal or VMs.
 ## Prerequisites
 
 - Linux system (Ubuntu 20.04+, Debian 11+, RHEL 8+, or similar)
-- Rust 1.70+ installed
+- Rust 1.82+ or stable installed
 - etcd 3.5+ installed and running
 - Root or sudo access
 - 2GB+ RAM

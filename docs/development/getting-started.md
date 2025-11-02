@@ -2,7 +2,7 @@
 
 ## Prerequisites
 
-- **Rust**: 1.70 or later ([Install Rust](https://www.rust-lang.org/tools/install))
+- **Rust**: 1.82 or later / stable ([Install Rust](https://www.rust-lang.org/tools/install))
 - **Protocol Buffers compiler (protoc)**: Required for building protobuf files used by the agent
   - Ubuntu/Debian: `sudo apt-get install protobuf-compiler libprotobuf-dev`
   - macOS: `brew install protobuf`

@@ -1,7 +1,7 @@
 # NNOE - New Network Orchestration Engine
 
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
-[![Rust](https://img.shields.io/badge/rust-1.70+-orange.svg)](https://www.rust-lang.org/)
+[![Rust](https://img.shields.io/badge/rust-1.82+-orange.svg)](https://www.rust-lang.org/)
 
 The New Network Orchestration Engine (NNOE) is an open-source, distributed DDI (DNS, DHCP, IPAM) platform inspired by BlueCat Integrity, emphasizing modularity, high availability (HA), security, and deployment flexibility across VMs, Docker, and Kubernetes (K8s).
 
@@ -24,7 +24,7 @@ The New Network Orchestration Engine (NNOE) is an open-source, distributed DDI (
 
 ### Prerequisites
 
-- Rust 1.70+ (for building the agent)
+- Rust 1.82+ or stable (for building the agent)
 - Protocol Buffers compiler (protoc) - required for building protobuf files
   - Ubuntu/Debian: `sudo apt-get install protobuf-compiler libprotobuf-dev`
   - macOS: `brew install protobuf`

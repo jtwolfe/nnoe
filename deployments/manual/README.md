@@ -4,7 +4,7 @@ Manual installation guide for NNOE on bare metal or VMs.
 
 ## Prerequisites
 
-- Rust 1.70+ (`cargo --version`)
+- Rust 1.82+ or stable (`cargo --version`)
 - etcd installed and running
 - Systemd (for service management)
 

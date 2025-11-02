@@ -1,4 +1,4 @@
-FROM rust:1.70 as builder
+FROM rust:stable as builder
 
 WORKDIR /app
 
@@ -19,7 +19,7 @@ COPY testing/performance/benchmarks/ ./testing/performance/benchmarks/
 RUN cargo build --release
 
 # Test image
-FROM rust:1.70
+FROM rust:stable
 
 WORKDIR /app
 

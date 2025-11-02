@@ -46,7 +46,7 @@ These are automatically picked up by dnsdist service for RPZ blocking.
 ## Docker
 
 ```dockerfile
-FROM rust:1.70 as builder
+FROM rust:stable as builder
 WORKDIR /app
 COPY integrations/misp-sync .
 RUN cargo build --release
