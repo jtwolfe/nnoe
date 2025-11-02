@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::process::Command;
-use std::sync::atomic::Ordering;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use tracing::{debug, error, info, warn};
@@ -75,7 +75,7 @@ pub struct KeaService {
     scopes: Arc<RwLock<HashMap<String, KeaScopeData>>>,
     config_path: PathBuf,
     #[allow(dead_code)]
-    has_vip: Arc<std::sync::atomic::AtomicBool>,
+    has_vip: Arc<AtomicBool>,
     #[allow(dead_code)]
     ha_state: Arc<RwLock<HaState>>,
     #[allow(dead_code)]
@@ -99,7 +99,7 @@ impl KeaService {
             config,
             scopes: Arc::new(RwLock::new(HashMap::new())),
             config_path,
-            has_vip: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            has_vip: Arc::new(AtomicBool::new(false)),
             ha_state: Arc::new(RwLock::new(HaState::Unknown)),
             service_running: Arc::new(RwLock::new(false)),
         }
@@ -138,139 +138,27 @@ impl KeaService {
                         pools: vec![KeaPool {
                             pool: format!("{} - {}", scope.pool_start, scope.pool_end),
                         }],
-                        option_data: {
-                            let mut options = Vec::new();
-                            if let Some(ref gateway) = scope.gateway {
-                                options.push(KeaOption {
-                                    name: "routers".to_string(),
-                                    data: gateway.clone(),
-                                });
-                            }
-                            if !scope.dns_servers.is_empty() {
-                                options.push(KeaOption {
-                                    name: "domain-name-servers".to_string(),
-                                    data: scope.dns_servers.join(", "),
-                                });
-                            }
-                            for (name, value) in &scope.options {
-                                options.push(KeaOption {
-                                    name: name.clone(),
-                                    data: value.clone(),
-                                });
-                            }
-                            options
-                        },
+                        option_data: scope
+                            .dns_servers
+                            .iter()
+                            .map(|dns| KeaOption {
+                                name: "domain-name-servers".to_string(),
+                                data: dns.clone(),
+                            })
+                            .collect(),
                     })
                     .collect(),
-                hooks_libraries: vec![
-                    // Custom hook for etcd sync would go here
-                    // KeaHook { library: "/usr/lib/kea/hooks/libdhcp_etcd.so".to_string() }
-                ],
+                hooks_libraries: vec![],
             },
         };
 
-        // Write Kea config file
-        let config_json = serde_json::to_string_pretty(&kea_config)?;
-        std::fs::write(&self.config_path, config_json).context(format!(
-            "Failed to write Kea config to {:?}",
-            self.config_path
-        ))?;
+        let config_json = serde_json::to_string_pretty(&kea_config)
+            .context("Failed to serialize Kea config")?;
 
-        info!("Generated Kea config with {} scopes", scopes.len());
-        Ok(())
-    }
-
-    async fn reload_kea(&self) -> Result<()> {
-        info!("Reloading Kea DHCP");
-
-        // Try to reload using kea-shell (Kea control channel)
-        let output = Command::new("kea-shell")
-            .arg("--host")
-            .arg("localhost")
-            .arg("--port")
-            .arg(&self.config.control_port.to_string())
-            .arg("--service")
-            .arg("dhcp4")
-            .arg("config-reload")
-            .output();
-
-        match output {
-            Ok(output) => {
-                if output.status.success() {
-                    info!("Kea DHCP reloaded successfully");
-                } else {
-                    let stderr = String::from_utf8_lossy(&output.stderr);
-                    warn!("Kea reload command failed: {}", stderr);
-                    // Fallback to systemctl restart
-                    return self.restart_kea().await;
-                }
-            }
-            Err(e) => {
-                warn!("kea-shell not available, using systemctl: {}", e);
-                return self.restart_kea().await;
-            }
-        }
+        std::fs::write(&self.config_path, config_json)
+            .context(format!("Failed to write Kea config to {}", self.config_path.display()))?;
 
         Ok(())
-    }
-
-    async fn restart_kea(&self) -> Result<()> {
-        info!("Restarting Kea DHCP service");
-
-        let output = Command::new("systemctl")
-            .arg("restart")
-            .arg("kea-dhcp4")
-            .output()
-            .context("Failed to restart Kea service")?;
-
-        if !output.status.success() {
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            return Err(anyhow::anyhow!("Failed to restart Kea: {}", stderr));
-        }
-
-        info!("Kea DHCP service restarted");
-        Ok(())
-    }
-
-    async fn parse_scope_from_etcd(
-        &self,
-        scope_id: &str,
-        scope_data: &[u8],
-    ) -> Result<KeaScopeData> {
-        #[derive(Deserialize)]
-        struct ScopeJson {
-            subnet: String,
-            pool: PoolConfig,
-            #[serde(default)]
-            gateway: Option<String>,
-            #[serde(default)]
-            options: HashMap<String, String>,
-        }
-
-        #[derive(Deserialize)]
-        struct PoolConfig {
-            start: String,
-            end: String,
-        }
-
-        let scope_json: ScopeJson = serde_json::from_slice(scope_data)
-            .context(format!("Failed to parse scope JSON for {}", scope_id))?;
-
-        // Extract DNS servers from options if present
-        let dns_servers = scope_json
-            .options
-            .get("dns-servers")
-            .map(|s| s.split(',').map(|s| s.trim().to_string()).collect())
-            .unwrap_or_else(|| vec!["8.8.8.8".to_string()]); // Default DNS
-
-        Ok(KeaScopeData {
-            subnet: scope_json.subnet,
-            pool_start: scope_json.pool.start,
-            pool_end: scope_json.pool.end,
-            gateway: scope_json.gateway,
-            dns_servers,
-            options: scope_json.options,
-        })
     }
 
     async fn handle_ha_coordination(&self) -> Result<()> {
@@ -385,6 +273,103 @@ impl KeaService {
             }
         }
     }
+
+    async fn reload_kea(&self) -> Result<()> {
+        info!("Reloading Kea DHCP");
+
+        // Try to reload using kea-shell (Kea control channel)
+        let output = Command::new("kea-shell")
+            .arg("--host")
+            .arg("localhost")
+            .arg("--port")
+            .arg(&self.config.control_port.to_string())
+            .arg("--service")
+            .arg("dhcp4")
+            .arg("config-reload")
+            .output();
+
+        match output {
+            Ok(output) => {
+                if output.status.success() {
+                    info!("Kea DHCP reloaded successfully");
+                } else {
+                    let stderr = String::from_utf8_lossy(&output.stderr);
+                    warn!("Kea reload command failed: {}", stderr);
+                    // Fallback to systemctl restart
+                    return self.restart_kea().await;
+                }
+            }
+            Err(e) => {
+                warn!("kea-shell not available, using systemctl: {}", e);
+                return self.restart_kea().await;
+            }
+        }
+
+        Ok(())
+    }
+
+    async fn restart_kea(&self) -> Result<()> {
+        info!("Restarting Kea DHCP service");
+
+        let output = Command::new("systemctl")
+            .arg("restart")
+            .arg("kea-dhcp4")
+            .output()
+            .context("Failed to restart Kea service")?;
+
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            return Err(anyhow::anyhow!("Failed to restart Kea: {}", stderr));
+        }
+
+        info!("Kea DHCP service restarted");
+        Ok(())
+    }
+
+    async fn parse_scope_from_etcd(&self, scope_id: &str, value: &[u8]) -> Result<KeaScopeData> {
+        let scope_json: serde_json::Value = serde_json::from_slice(value)
+            .context("Failed to parse scope JSON from etcd")?;
+
+        let subnet = scope_json["subnet"]
+            .as_str()
+            .context("Missing subnet in scope data")?
+            .to_string();
+
+        let pool = scope_json["pool"].as_object().context("Missing pool in scope data")?;
+        let pool_start = pool["start"]
+            .as_str()
+            .context("Missing pool start")?
+            .to_string();
+        let pool_end = pool["end"]
+            .as_str()
+            .context("Missing pool end")?
+            .to_string();
+
+        let gateway = scope_json["gateway"].as_str().map(|s| s.to_string());
+
+        let dns_servers: Vec<String> = scope_json["dns_servers"]
+            .as_array()
+            .unwrap_or(&vec![])
+            .iter()
+            .map(|v| v.as_str().unwrap_or("").to_string())
+            .collect();
+
+        let options: HashMap<String, String> = scope_json["options"]
+            .as_object()
+            .unwrap_or(&std::collections::HashMap::new())
+            .iter()
+            .map(|(k, v)| (k.clone(), v.as_str().unwrap_or("").to_string()))
+            .collect();
+
+        Ok(KeaScopeData {
+            subnet,
+            pool_start,
+            pool_end,
+            gateway,
+            dns_servers,
+            options,
+        })
+    }
 }
 
 #[async_trait]
@@ -448,7 +433,6 @@ impl ServicePlugin for KeaService {
     }
 
     async fn reload(&mut self) -> Result<()> {
-        info!("Reloading Kea DHCP service");
         self.generate_config().await?;
         self.reload_kea().await?;
         Ok(())
