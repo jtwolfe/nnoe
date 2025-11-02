@@ -228,7 +228,7 @@ impl Drop for NebulaManager {
             // Attempt to kill the process using a blocking runtime handle
             if let Ok(handle) = tokio::runtime::Handle::try_current() {
                 let guard = handle.block_on(async { self.process.write().await });
-                if let Some(mut child) = guard.as_ref() {
+                if let Some(child) = guard.as_ref() {
                     let _ = std::process::Command::new("kill")
                         .arg("-TERM")
                         .arg(child.id().to_string())

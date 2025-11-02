@@ -33,21 +33,35 @@ jobs:
         sudo apt-get install -y musl-tools musl-dev
         if [ "${{ matrix.target }}" = "aarch64-unknown-linux-musl" ]; then
           # Install musl cross-compiler for aarch64
-          # Use curl with retries as it's more reliable than wget for large files
-          echo "Downloading aarch64 musl cross-compiler..."
-          for i in 1 2 3; do
-            if curl -L --fail --max-time 300 --retry 3 --retry-delay 5 \
+          # Use curl with retries - musl.cc can be slow/timeout
+          echo "Downloading aarch64 musl cross-compiler from musl.cc..."
+          MAX_ATTEMPTS=5
+          TIMEOUT=120
+          for i in $(seq 1 $MAX_ATTEMPTS); do
+            echo "Attempt $i/$MAX_ATTEMPTS..."
+            if curl -L --fail --connect-timeout 10 --max-time $TIMEOUT \
+              --retry 2 --retry-delay 3 --progress-bar \
               -o aarch64-linux-musl-cross.tgz \
-              https://musl.cc/aarch64-linux-musl-cross.tgz; then
-              echo "Download successful on attempt $i"
-              break
+              https://musl.cc/aarch64-linux-musl-cross.tgz 2>&1 | tee /tmp/curl_output.log; then
+              if [ -f aarch64-linux-musl-cross.tgz ] && [ -s aarch64-linux-musl-cross.tgz ]; then
+                echo "Download successful on attempt $i"
+                break
+              else
+                echo "Downloaded file is empty or missing, retrying..."
+                rm -f aarch64-linux-musl-cross.tgz
+              fi
             else
-              echo "Download failed on attempt $i, retrying..."
-              sleep 10
+              echo "Download failed on attempt $i (timeout after ${TIMEOUT}s)"
+              if [ $i -lt $MAX_ATTEMPTS ]; then
+                echo "Waiting 15 seconds before retry..."
+                sleep 15
+              fi
             fi
           done
-          if [ ! -f aarch64-linux-musl-cross.tgz ]; then
-            echo "Error: Failed to download cross-compiler after 3 attempts"
+          if [ ! -f aarch64-linux-musl-cross.tgz ] || [ ! -s aarch64-linux-musl-cross.tgz ]; then
+            echo "Error: Failed to download cross-compiler after $MAX_ATTEMPTS attempts"
+            echo "This may be due to network issues with musl.cc"
+            echo "Consider using a cached version or alternative source"
             exit 1
           fi
           sudo tar -xzf aarch64-linux-musl-cross.tgz -C /usr/local --strip-components=1

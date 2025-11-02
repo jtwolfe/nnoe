@@ -239,19 +239,18 @@ impl Orchestrator {
                             etcd_client::EventType::Put => {
                                 if let Some(kv) = kv_event.kv() {
                                     let key = String::from_utf8_lossy(kv.key());
-                                    if let Some(value) = kv.value() {
-                                        if let Err(e) = cache.put(key.as_ref(), value) {
-                                            error!("Failed to update cache for {}: {}", key, e);
-                                        } else {
-                                            info!("Updated cache for key: {}", key);
-                                        }
+                                    let value = kv.value();
+                                    if let Err(e) = cache.put(key.as_ref(), value) {
+                                        error!("Failed to update cache for {}: {}", key, e);
+                                    } else {
+                                        info!("Updated cache for key: {}", key);
+                                    }
 
-                                        // Notify plugins
-                                        if let Err(e) =
-                                            registry.notify_config_change(key.as_ref(), value).await
-                                        {
-                                            error!("Failed to notify plugins: {}", e);
-                                        }
+                                    // Notify plugins
+                                    if let Err(e) =
+                                        registry.notify_config_change(key.as_ref(), value).await
+                                    {
+                                        error!("Failed to notify plugins: {}", e);
                                     }
                                 }
                             }

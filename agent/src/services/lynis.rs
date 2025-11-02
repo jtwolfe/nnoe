@@ -9,7 +9,7 @@ use std::process::Command;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use tokio::time::{interval, Duration};
-use tracing::{error, info, warn};
+use tracing::{debug, error, info, warn};
 
 /// Lynis security auditing service integration
 pub struct LynisService {
@@ -261,7 +261,7 @@ impl ServicePlugin for LynisService {
     async fn reload(&mut self) -> Result<()> {
         info!("Reloading Lynis service (triggering immediate audit)");
         // Trigger immediate audit on reload
-        let report = self.run_audit().await?;
+        let _report = self.run_audit().await?;
 
         // Upload report (would need etcd client passed in)
         // For now, just log success

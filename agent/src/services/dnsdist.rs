@@ -2,7 +2,7 @@ use crate::config::DnsdistServiceConfig;
 use crate::plugin::ServicePlugin;
 use anyhow::{Context, Result};
 use async_trait::async_trait;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::process::Command;
@@ -226,7 +226,7 @@ impl DnsdistService {
             rules: Vec<PolicyRule>,
         }
 
-        #[derive(Debug, Deserialize)]
+        #[derive(Debug, Deserialize, Serialize)]
         struct PolicyRule {
             actions: Vec<String>,
             effect: String,
@@ -301,8 +301,8 @@ impl DnsdistService {
     fn cerbos_rule_to_lua(
         &self,
         rule: &serde_json::Value,
-        policy_id: &str,
-        rule_idx: usize,
+        _policy_id: &str,
+        _rule_idx: usize,
     ) -> Result<String> {
         // This is a simplified parser - in production, use a proper expression parser
         let mut lua = String::from("addLuaAction(AllRule(), function(dq)\n");
@@ -430,7 +430,7 @@ impl ServicePlugin for DnsdistService {
         if key.contains("/threats/domains/") {
             // Update RPZ with threat domain
             let parts: Vec<&str> = key.split('/').collect();
-            if let Some(domain) = parts.last() {
+            if let Some(_domain) = parts.last() {
                 // Parse threat JSON
                 #[derive(serde::Deserialize)]
                 struct ThreatData {

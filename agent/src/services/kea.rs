@@ -328,7 +328,7 @@ impl KeaService {
         Ok(())
     }
 
-    async fn parse_scope_from_etcd(&self, scope_id: &str, value: &[u8]) -> Result<KeaScopeData> {
+    async fn parse_scope_from_etcd(&self, _scope_id: &str, value: &[u8]) -> Result<KeaScopeData> {
         let scope_json: serde_json::Value =
             serde_json::from_slice(value).context("Failed to parse scope JSON from etcd")?;
 
