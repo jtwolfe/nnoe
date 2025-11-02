@@ -25,7 +25,7 @@ jobs:
     
     - name: Build release binaries
       run: |
-        cargo build --all --release
+        cargo build --workspace --release
     
     - name: Create release archive
       run: |

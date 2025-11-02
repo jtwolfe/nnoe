@@ -38,7 +38,7 @@ jobs:
     
     - name: Run E2E tests
       run: |
-        cargo test --test e2e_tests --package nnoe-agent -- --test-threads=1
+        cargo test --test e2e_tests --package nnoe-agent -- --ignored --test-threads=1
     
     - name: Collect logs on failure
       if: failure()

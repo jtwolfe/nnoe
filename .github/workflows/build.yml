@@ -44,7 +44,10 @@ jobs:
           ~/.cargo/registry
           ~/.cargo/git
           target/
-        key: ${{ runner.os }}-cargo-${{ matrix.target }}-${{ hashFiles('**/Cargo.lock') }}
+        key: ${{ runner.os }}-cargo-${{ matrix.target }}-${{ hashFiles('**/Cargo.toml') }}
+        restore-keys: |
+          ${{ runner.os }}-cargo-${{ matrix.target }}-
+          ${{ runner.os }}-cargo-
     
     - name: Build agent
       run: |
@@ -54,6 +57,10 @@ jobs:
       run: |
         cargo build --package nnoe-misp-sync --release --target ${{ matrix.target }}
     
+    - name: Build prometheus-exporter
+      run: |
+        cargo build --package nnoe-prometheus-exporter --release --target ${{ matrix.target }}
+    
     - name: Upload artifacts
       uses: actions/upload-artifact@v4
       with:
@@ -61,4 +68,5 @@ jobs:
         path: |
           target/${{ matrix.target }}/release/nnoe-agent
           target/${{ matrix.target }}/release/misp-sync
+          target/${{ matrix.target }}/release/nnoe-prometheus-exporter
         retention-days: 7
