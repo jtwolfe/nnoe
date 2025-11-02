@@ -3,6 +3,10 @@
 ## Prerequisites
 
 - **Rust**: 1.70 or later ([Install Rust](https://www.rust-lang.org/tools/install))
+- **Protocol Buffers compiler (protoc)**: Required for building protobuf files used by the agent
+  - Ubuntu/Debian: `sudo apt-get install protobuf-compiler libprotobuf-dev`
+  - macOS: `brew install protobuf`
+  - Other platforms: See [protobuf installation guide](https://grpc.io/docs/protoc-installation/)
 - **Docker** and **Docker Compose** (for integration testing)
 - **etcd**: v3.5+ (for local development)
 
@@ -23,6 +27,12 @@ rustup toolchain install stable
 
 # Install development tools
 rustup component add rustfmt clippy
+
+# Install Protocol Buffers compiler (if not already installed)
+# Ubuntu/Debian:
+sudo apt-get install protobuf-compiler libprotobuf-dev
+# macOS:
+# brew install protobuf
 ```
 
 ### 3. Build the Project

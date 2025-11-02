@@ -24,6 +24,13 @@ if [ -n "$FEATURES" ]; then
     CARGO_ARGS="$CARGO_ARGS --features $FEATURES"
 fi
 
+# Check for protoc (required for building protobuf files)
+if ! command -v protoc &> /dev/null; then
+    echo "Error: protoc (Protocol Buffers compiler) is required but not found."
+    echo "Install it with: sudo apt-get install protobuf-compiler libprotobuf-dev"
+    exit 1
+fi
+
 # Build the agent
 cargo build --package nnoe-agent $CARGO_ARGS
 

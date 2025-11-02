@@ -18,6 +18,11 @@ jobs:
       with:
         toolchain: stable
     
+    - name: Install protobuf compiler
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y protobuf-compiler libprotobuf-dev
+    
     - name: Cache cargo registry
       uses: actions/cache@v3
       with:
