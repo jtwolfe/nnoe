@@ -1,6 +1,5 @@
-mod trait_def;
 mod registry;
+mod trait_def;
 
-pub use trait_def::ServicePlugin;
 pub use registry::PluginRegistry;
-
+pub use trait_def::ServicePlugin;

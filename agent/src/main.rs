@@ -8,8 +8,8 @@ mod core;
 mod etcd;
 mod nebula;
 mod plugin;
-mod sled_cache;
 mod services;
+mod sled_cache;
 
 use config::AgentConfig;
 use core::Orchestrator;
@@ -73,7 +73,7 @@ async fn main() -> anyhow::Result<()> {
         }
         Some(Commands::Run) | None => {
             info!("Starting NNOE Agent v{}", env!("CARGO_PKG_VERSION"));
-            
+
             // Load configuration
             let cfg = AgentConfig::load(&cli.config)?;
             info!("Configuration loaded from {:?}", cli.config);
@@ -86,4 +86,3 @@ async fn main() -> anyhow::Result<()> {
 
     Ok(())
 }
-

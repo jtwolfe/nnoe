@@ -1,9 +1,9 @@
 #[cfg(test)]
 mod tests {
-    use nnoe_agent::config::{DnsServiceConfig, DhcpServiceConfig, CerbosServiceConfig};
-    use nnoe_agent::services::knot::KnotService;
-    use nnoe_agent::services::kea::KeaService;
+    use nnoe_agent::config::{CerbosServiceConfig, DhcpServiceConfig, DnsServiceConfig};
     use nnoe_agent::services::cerbos::CerbosService;
+    use nnoe_agent::services::kea::KeaService;
+    use nnoe_agent::services::knot::KnotService;
     use std::fs;
 
     fn setup_test_dir(path: &str) {
@@ -13,7 +13,7 @@ mod tests {
     #[tokio::test]
     async fn test_knot_service_init() {
         setup_test_dir("/tmp/test-knot");
-        
+
         let config = DnsServiceConfig {
             enabled: true,
             engine: "knot".to_string(),
@@ -22,10 +22,10 @@ mod tests {
             listen_address: "127.0.0.1".to_string(),
             listen_port: 5353,
         };
-        
+
         let mut service = KnotService::new(config);
         let result = service.init(&[]).await;
-        
+
         // Should succeed or fail gracefully
         assert!(result.is_ok() || result.unwrap_err().to_string().contains("knot"));
     }
@@ -33,7 +33,7 @@ mod tests {
     #[tokio::test]
     async fn test_kea_service_init() {
         setup_test_dir("/tmp/test-kea");
-        
+
         let config = DhcpServiceConfig {
             enabled: true,
             engine: "kea".to_string(),
@@ -42,10 +42,10 @@ mod tests {
             interface: "eth0".to_string(),
             control_port: 8000,
         };
-        
+
         let mut service = KeaService::new(config);
         let result = service.init(&[]).await;
-        
+
         // Should succeed or fail gracefully
         assert!(result.is_ok() || result.unwrap_err().to_string().contains("kea"));
     }
@@ -58,13 +58,19 @@ mod tests {
             endpoint: "http://localhost:8222".to_string(),
             timeout_secs: 2,
         };
-        
+
         let mut service = CerbosService::new(config);
         let result = service.init(&[]).await;
-        
+
         // Should either connect or fail with connection error
-        assert!(result.is_ok() || result.unwrap_err().to_string().contains("connection") ||
-                result.unwrap_err().to_string().contains("Failed to connect"));
+        assert!(
+            result.is_ok()
+                || result.unwrap_err().to_string().contains("connection")
+                || result
+                    .unwrap_err()
+                    .to_string()
+                    .contains("Failed to connect")
+        );
     }
 
     #[tokio::test]
@@ -75,12 +81,11 @@ mod tests {
             endpoint: "http://localhost:8222".to_string(),
             timeout_secs: 2,
         };
-        
+
         let service = CerbosService::new(config);
-        
+
         // This test would require a properly initialized service
         // For now, just verify the service can be created
         assert_eq!(service.name(), "cerbos");
     }
 }
-

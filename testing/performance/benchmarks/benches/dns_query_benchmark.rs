@@ -12,7 +12,7 @@ fn benchmark_zone_parsing(c: &mut Criterion) {
             {"name": "mail", "type": "A", "value": "192.168.1.3"}
         ]
     }"#;
-    
+
     c.bench_function("parse_zone_json", |b| {
         b.iter(|| {
             let _: serde_json::Value = serde_json::from_str(black_box(zone_data)).unwrap();
@@ -31,4 +31,3 @@ fn benchmark_config_generation(c: &mut Criterion) {
 
 criterion_group!(benches, benchmark_zone_parsing, benchmark_config_generation);
 criterion_main!(benches);
-

@@ -101,21 +101,18 @@ async fn main() -> Result<()> {
 }
 
 fn load_config() -> Result<Config> {
-    let misp_url = std::env::var("MISP_URL")
-        .unwrap_or_else(|_| "http://localhost".to_string());
-    let misp_api_key = std::env::var("MISP_API_KEY")
-        .unwrap_or_else(|_| {
-            warn!("MISP_API_KEY not set, using empty key");
-            String::new()
-        });
-    let etcd_endpoints_str = std::env::var("ETCD_ENDPOINTS")
-        .unwrap_or_else(|_| "http://127.0.0.1:2379".to_string());
+    let misp_url = std::env::var("MISP_URL").unwrap_or_else(|_| "http://localhost".to_string());
+    let misp_api_key = std::env::var("MISP_API_KEY").unwrap_or_else(|_| {
+        warn!("MISP_API_KEY not set, using empty key");
+        String::new()
+    });
+    let etcd_endpoints_str =
+        std::env::var("ETCD_ENDPOINTS").unwrap_or_else(|_| "http://127.0.0.1:2379".to_string());
     let etcd_endpoints: Vec<String> = etcd_endpoints_str
         .split(',')
         .map(|s| s.trim().to_string())
         .collect();
-    let etcd_prefix = std::env::var("ETCD_PREFIX")
-        .unwrap_or_else(|_| "/nnoe".to_string());
+    let etcd_prefix = std::env::var("ETCD_PREFIX").unwrap_or_else(|_| "/nnoe".to_string());
     let sync_interval_secs: u64 = std::env::var("SYNC_INTERVAL_SECS")
         .unwrap_or_else(|_| "3600".to_string())
         .parse()
@@ -162,7 +159,10 @@ async fn sync_misp_to_etcd(config: &Config, etcd_client: &mut Client) -> Result<
                 category: Some(attr.category.clone()),
             };
 
-            let key = format!("{}/threats/domains/{}", config.etcd_prefix, threat_data.domain);
+            let key = format!(
+                "{}/threats/domains/{}",
+                config.etcd_prefix, threat_data.domain
+            );
             let value = serde_json::to_string(&threat_data)?;
 
             // Retry etcd put operations
@@ -176,12 +176,15 @@ async fn sync_misp_to_etcd(config: &Config, etcd_client: &mut Client) -> Result<
                         Some(PutOptions::new().with_prev_kv()),
                     )
                     .await
-                    .context(format!("Failed to put threat to etcd: {}", threat_data.domain))
+                    .context(format!(
+                        "Failed to put threat to etcd: {}",
+                        threat_data.domain
+                    ))
                 },
                 &format!("put_threat_{}", threat_data.domain),
             )
             .await?;
-            
+
             // Check if result indicates success (etcd put doesn't return a value on success, just Ok(()))
             let _ = result;
 
@@ -199,7 +202,7 @@ async fn fetch_misp_events(config: &Config) -> Result<Vec<MispEvent>> {
 
     // MISP API: search for events with domain/hostname attributes
     let url = format!("{}/events/index", config.misp_url);
-    
+
     let response = client
         .post(&url)
         .header("Authorization", &config.misp_api_key)
@@ -236,4 +239,3 @@ fn determine_severity(category: &str) -> String {
         _ => "low".to_string(),
     }
 }
-

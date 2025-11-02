@@ -45,8 +45,10 @@ impl DnsdistService {
 
         // Ensure Lua script directory exists
         if let Some(parent) = self.lua_script_path.parent() {
-            std::fs::create_dir_all(parent)
-                .context(format!("Failed to create Lua script directory: {:?}", parent))?;
+            std::fs::create_dir_all(parent).context(format!(
+                "Failed to create Lua script directory: {:?}",
+                parent
+            ))?;
         }
 
         let mut lua_content = String::from("-- NNOE Generated dnsdist Lua Rules\n");
@@ -88,11 +90,16 @@ impl DnsdistService {
         lua_content.push_str("  return DNSAction.None\n");
         lua_content.push_str("end)\n");
 
-        std::fs::write(&self.lua_script_path, lua_content)
-            .context(format!("Failed to write Lua script to {:?}", self.lua_script_path))?;
+        std::fs::write(&self.lua_script_path, lua_content).context(format!(
+            "Failed to write Lua script to {:?}",
+            self.lua_script_path
+        ))?;
 
-        info!("Generated dnsdist Lua script with {} rules and {} RPZ domains", 
-              rules.len(), rpz_domains.len());
+        info!(
+            "Generated dnsdist Lua script with {} rules and {} RPZ domains",
+            rules.len(),
+            rpz_domains.len()
+        );
         Ok(())
     }
 
@@ -106,9 +113,15 @@ impl DnsdistService {
         let mut config_content = String::from("# NNOE Generated dnsdist Configuration\n");
         config_content.push_str("# Auto-generated, do not edit manually\n\n");
         config_content.push_str(&format!("setKey(\"nnoe-dnsdist-key\")\n"));
-        config_content.push_str(&format!("controlSocket(\"127.0.0.1:{}\")\n", self.config.control_port));
-        config_content.push_str(&format!("setLocal(\"{}:{}\")\n\n", self.config.listen_address, self.config.listen_port));
-        
+        config_content.push_str(&format!(
+            "controlSocket(\"127.0.0.1:{}\")\n",
+            self.config.control_port
+        ));
+        config_content.push_str(&format!(
+            "setLocal(\"{}:{}\")\n\n",
+            self.config.listen_address, self.config.listen_port
+        ));
+
         // Add Lua script reference
         config_content.push_str(&format!(
             "addLuaAction(AllRule(), LoadString(\"{}\"))\n",
@@ -123,13 +136,18 @@ impl DnsdistService {
             config_content.push_str("newServer({address=\"8.8.8.8\", name=\"google\"})\n");
         } else {
             for resolver in &self.config.upstream_resolvers {
-                config_content.push_str(&format!("newServer({{address=\"{}\", name=\"{}\"}})\n", 
-                    resolver, resolver.split(':').next().unwrap_or("resolver")));
+                config_content.push_str(&format!(
+                    "newServer({{address=\"{}\", name=\"{}\"}})\n",
+                    resolver,
+                    resolver.split(':').next().unwrap_or("resolver")
+                ));
             }
         }
 
-        std::fs::write(&self.config_path, config_content)
-            .context(format!("Failed to write dnsdist config to {:?}", self.config_path))?;
+        std::fs::write(&self.config_path, config_content).context(format!(
+            "Failed to write dnsdist config to {:?}",
+            self.config_path
+        ))?;
 
         info!("Generated dnsdist config");
         Ok(())
@@ -137,7 +155,7 @@ impl DnsdistService {
 
     async fn reload_dnsdist(&self) -> Result<()> {
         info!("Reloading dnsdist");
-        
+
         // Try to reload using dnsdist control channel
         let output = Command::new("dnsdist")
             .arg("-C")
@@ -165,7 +183,7 @@ impl DnsdistService {
 
     async fn restart_dnsdist(&self) -> Result<()> {
         info!("Restarting dnsdist service");
-        
+
         let output = Command::new("systemctl")
             .arg("restart")
             .arg("dnsdist")
@@ -231,8 +249,7 @@ impl DnsdistService {
         let policy: CerbosPolicy = if let Ok(p) = serde_yaml::from_slice(policy_data) {
             p
         } else {
-            serde_json::from_slice(policy_data)
-                .context("Failed to parse policy as YAML or JSON")?
+            serde_json::from_slice(policy_data).context("Failed to parse policy as YAML or JSON")?
         };
 
         // Only process DNS-related policies
@@ -243,10 +260,10 @@ impl DnsdistService {
             }
 
             let mut rules = self.rules.write().await;
-            
+
             // Extract policy ID from key
             let policy_id = key.split('/').last().unwrap_or("unknown");
-            
+
             // Convert each rule to Lua
             for (idx, rule) in resource_policy.rules.iter().enumerate() {
                 if rule.effect != "EFFECT_ALLOW" && rule.actions.contains(&"allow".to_string()) {
@@ -254,7 +271,7 @@ impl DnsdistService {
                 }
 
                 let lua_code = self.cerbos_rule_to_lua(rule, policy_id, idx)?;
-                
+
                 rules.push(DnsdistRule {
                     name: format!("cerbos_{}_{}", policy_id, idx),
                     lua_code,
@@ -262,11 +279,14 @@ impl DnsdistService {
                 });
             }
 
-            info!("Converted {} rules from Cerbos policy {}", 
-                  resource_policy.rules.len(), policy_id);
+            info!(
+                "Converted {} rules from Cerbos policy {}",
+                resource_policy.rules.len(),
+                policy_id
+            );
 
             drop(rules);
-            
+
             // Regenerate Lua script
             self.generate_lua_script().await?;
             self.reload_dnsdist().await?;
@@ -275,7 +295,12 @@ impl DnsdistService {
         Ok(())
     }
 
-    fn cerbos_rule_to_lua(&self, rule: &serde_json::Value, policy_id: &str, rule_idx: usize) -> Result<String> {
+    fn cerbos_rule_to_lua(
+        &self,
+        rule: &serde_json::Value,
+        policy_id: &str,
+        rule_idx: usize,
+    ) -> Result<String> {
         // This is a simplified parser - in production, use a proper expression parser
         let mut lua = String::from("addLuaAction(AllRule(), function(dq)\n");
         lua.push_str("  local qname = dq.qname:toString()\n");
@@ -289,11 +314,16 @@ impl DnsdistService {
                 .filter_map(|r| r.as_str())
                 .map(|r| format!("role == \"{}\"", r))
                 .collect();
-            
+
             if !role_checks.is_empty() {
-                lua.push_str("  -- Role-based check (placeholder - role would come from request context)\n");
+                lua.push_str(
+                    "  -- Role-based check (placeholder - role would come from request context)\n",
+                );
                 lua.push_str("  local role = \"user\" -- TODO: Extract from request\n");
-                lua.push_str(&format!("  local has_role = ({})\n", role_checks.join(" or ")));
+                lua.push_str(&format!(
+                    "  local has_role = ({})\n",
+                    role_checks.join(" or ")
+                ));
             }
         }
 
@@ -312,7 +342,8 @@ impl DnsdistService {
         }
 
         // Extract domain checks from expressions
-        let expr = rule.get("condition")
+        let expr = rule
+            .get("condition")
             .and_then(|c| c.get("match"))
             .and_then(|m| m.get("expr"))
             .and_then(|e| e.as_str());
@@ -353,14 +384,14 @@ impl DnsdistService {
     fn convert_cerbos_expr_to_lua(&self, expr: &str) -> String {
         // Simple expression converter - in production, use a proper parser
         let mut lua = expr.to_string();
-        
+
         // Replace common patterns
         lua = lua.replace("request.time.hour", "current_hour");
         lua = lua.replace("request.domain.contains", "string.find(qname");
         lua = lua.replace("!", "not ");
         lua = lua.replace("&&", " and ");
         lua = lua.replace("||", " or ");
-        
+
         // Handle contains with proper string matching
         if lua.contains("string.find(qname") {
             lua = lua.replace("\"", "'");
@@ -369,7 +400,7 @@ impl DnsdistService {
                 lua = format!("{} ~= nil", lua);
             }
         }
-        
+
         lua
     }
 }
@@ -403,16 +434,16 @@ impl ServicePlugin for DnsdistService {
                     domain: String,
                     source: String,
                 }
-                
+
                 match serde_json::from_slice::<ThreatData>(value) {
                     Ok(threat) => {
                         let mut rpz = self.rpz_domains.write().await;
                         rpz.insert(threat.domain.clone(), threat.source);
                         drop(rpz);
-                        
+
                         self.generate_lua_script().await?;
                         self.reload_dnsdist().await?;
-                        
+
                         info!("Threat domain added to RPZ: {}", threat.domain);
                     }
                     Err(e) => {
@@ -458,13 +489,9 @@ impl ServicePlugin for DnsdistService {
             Ok(output) => Ok(output.status.success()),
             Err(_) => {
                 // Fallback: try to check if dnsdist process exists
-                let output = Command::new("pgrep")
-                    .arg("-f")
-                    .arg("dnsdist")
-                    .output();
+                let output = Command::new("pgrep").arg("-f").arg("dnsdist").output();
                 Ok(output.map(|o| o.status.success()).unwrap_or(false))
             }
         }
     }
 }
-

@@ -1,9 +1,9 @@
 use crate::config::AgentConfig;
 use crate::etcd::EtcdClient;
-use crate::sled_cache::CacheManager;
 use crate::nebula::NebulaManager;
 use crate::plugin::{PluginRegistry, ServicePlugin};
 use crate::services::{CerbosService, DnsdistService, KeaService, KnotService, LynisService};
+use crate::sled_cache::CacheManager;
 use anyhow::{Context, Result};
 use std::sync::Arc;
 use tokio::sync::RwLock;
@@ -30,10 +30,8 @@ impl Orchestrator {
         info!("etcd client initialized");
 
         // Initialize cache manager (will start background sweep task)
-        let cache_manager = Arc::new(
-            CacheManager::new(&config.cache)
-                .context("Failed to create cache manager")?,
-        );
+        let cache_manager =
+            Arc::new(CacheManager::new(&config.cache).context("Failed to create cache manager")?);
         info!("Cache manager initialized at {}", config.cache.path);
 
         // Initialize Nebula manager if enabled
@@ -98,15 +96,15 @@ impl Orchestrator {
         if let Some(ref dns_config) = self.config.services.dns {
             if dns_config.enabled {
                 let knot_service = KnotService::new(dns_config.clone());
-                let plugin: Arc<RwLock<Box<dyn ServicePlugin + Send + Sync>>> = 
+                let plugin: Arc<RwLock<Box<dyn ServicePlugin + Send + Sync>>> =
                     Arc::new(RwLock::new(Box::new(knot_service)));
-                
+
                 // Initialize the plugin
                 {
                     let mut service = plugin.write().await;
                     service.init(&[]).await?;
                 }
-                
+
                 self.plugin_registry.register(plugin).await?;
                 info!("Knot DNS service registered and initialized");
             }
@@ -116,14 +114,14 @@ impl Orchestrator {
         if let Some(ref dhcp_config) = self.config.services.dhcp {
             if dhcp_config.enabled {
                 let kea_service = KeaService::new(dhcp_config.clone());
-                let plugin: Arc<RwLock<Box<dyn ServicePlugin + Send + Sync>>> = 
+                let plugin: Arc<RwLock<Box<dyn ServicePlugin + Send + Sync>>> =
                     Arc::new(RwLock::new(Box::new(kea_service)));
-                
+
                 {
                     let mut service = plugin.write().await;
                     service.init(&[]).await?;
                 }
-                
+
                 self.plugin_registry.register(plugin).await?;
                 info!("Kea DHCP service registered and initialized");
             }
@@ -133,14 +131,14 @@ impl Orchestrator {
         if let Some(ref dnsdist_config) = self.config.services.dnsdist {
             if dnsdist_config.enabled {
                 let dnsdist_service = DnsdistService::new(dnsdist_config.clone());
-                let plugin: Arc<RwLock<Box<dyn ServicePlugin + Send + Sync>>> = 
+                let plugin: Arc<RwLock<Box<dyn ServicePlugin + Send + Sync>>> =
                     Arc::new(RwLock::new(Box::new(dnsdist_service)));
-                
+
                 {
                     let mut service = plugin.write().await;
                     service.init(&[]).await?;
                 }
-                
+
                 self.plugin_registry.register(plugin).await?;
                 info!("dnsdist service registered and initialized");
             }
@@ -150,14 +148,14 @@ impl Orchestrator {
         if let Some(ref cerbos_config) = self.config.services.cerbos {
             if cerbos_config.enabled {
                 let cerbos_service = CerbosService::new(cerbos_config.clone());
-                let plugin: Arc<RwLock<Box<dyn ServicePlugin + Send + Sync>>> = 
+                let plugin: Arc<RwLock<Box<dyn ServicePlugin + Send + Sync>>> =
                     Arc::new(RwLock::new(Box::new(cerbos_service)));
-                
+
                 {
                     let mut service = plugin.write().await;
                     service.init(&[]).await?;
                 }
-                
+
                 self.plugin_registry.register(plugin).await?;
                 info!("Cerbos service registered and initialized");
             }
@@ -168,23 +166,25 @@ impl Orchestrator {
             if lynis_config.enabled {
                 let node_id = self.config.node.node_id.clone();
                 let lynis_service = LynisService::new(lynis_config.clone(), node_id);
-                
+
                 // Set etcd client for Lynis service before initialization
-                lynis_service.set_etcd_client(Arc::clone(&self.etcd_client)).await;
-                
-                let plugin: Arc<RwLock<Box<dyn ServicePlugin + Send + Sync>>> = 
+                lynis_service
+                    .set_etcd_client(Arc::clone(&self.etcd_client))
+                    .await;
+
+                let plugin: Arc<RwLock<Box<dyn ServicePlugin + Send + Sync>>> =
                     Arc::new(RwLock::new(Box::new(lynis_service)));
-                
+
                 let init_config = serde_json::json!({
                     "node_id": self.config.node.name
                 });
                 let init_bytes = serde_json::to_vec(&init_config)?;
-                
+
                 {
                     let mut service = plugin.write().await;
                     service.init(&init_bytes).await?;
                 }
-                
+
                 self.plugin_registry.register(plugin).await?;
                 info!("Lynis service registered and initialized");
             }
@@ -245,7 +245,9 @@ impl Orchestrator {
                                         }
 
                                         // Notify plugins
-                                        if let Err(e) = registry.notify_config_change(key.as_ref(), value).await {
+                                        if let Err(e) =
+                                            registry.notify_config_change(key.as_ref(), value).await
+                                        {
                                             error!("Failed to notify plugins: {}", e);
                                         }
                                     }
@@ -275,4 +277,3 @@ impl Orchestrator {
         Ok(())
     }
 }
-

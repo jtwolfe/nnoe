@@ -9,4 +9,3 @@ pub use dnsdist::DnsdistService;
 pub use kea::KeaService;
 pub use knot::KnotService;
 pub use lynis::LynisService;
-

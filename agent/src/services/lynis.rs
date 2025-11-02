@@ -80,9 +80,14 @@ impl LynisService {
         }
 
         // Parse Lynis report (simplified - real parsing would be more complex)
-        let node_id = self.node_id.read().await.clone().unwrap_or_else(|| "unknown".to_string());
+        let node_id = self
+            .node_id
+            .read()
+            .await
+            .clone()
+            .unwrap_or_else(|| "unknown".to_string());
         let timestamp = chrono::Utc::now().to_rfc3339();
-        
+
         let report = LynisReport {
             node: node_id,
             timestamp,
@@ -101,7 +106,7 @@ impl LynisService {
         if let Some(ref client) = *etcd_guard {
             let report_json = serde_json::to_string(report)?;
             let key = format!("/nnoe/audit/lynis/{}", report.node);
-            
+
             client.put(&key, report_json.as_bytes()).await?;
             info!("Uploaded Lynis report to etcd: {}", key);
         } else {
@@ -119,14 +124,16 @@ impl LynisService {
 
         tokio::spawn(async move {
             let mut interval_timer = interval(audit_interval);
-            
+
             loop {
                 interval_timer.tick().await;
-                
+
                 // Create a temporary service instance for the audit
                 let report = {
                     let node_id_guard = node_id.read().await;
-                    let node_id_str = node_id_guard.clone().unwrap_or_else(|| "unknown".to_string());
+                    let node_id_str = node_id_guard
+                        .clone()
+                        .unwrap_or_else(|| "unknown".to_string());
                     drop(node_id_guard);
 
                     // Run audit
@@ -175,7 +182,7 @@ impl LynisService {
                             }
                         }
                         drop(etcd_guard);
-                        
+
                         // Update last audit time
                         let mut last_audit_guard = last_audit.write().await;
                         *last_audit_guard = Some(std::time::SystemTime::now());
@@ -197,7 +204,10 @@ impl ServicePlugin for LynisService {
 
     async fn init(&mut self, config: &[u8]) -> Result<()> {
         info!("Initializing Lynis service");
-        info!("Audit interval: {} seconds", self.config.audit_interval_secs);
+        info!(
+            "Audit interval: {} seconds",
+            self.config.audit_interval_secs
+        );
         info!("Report path: {}", self.config.report_path);
 
         // Parse node ID from config if provided
@@ -205,7 +215,7 @@ impl ServicePlugin for LynisService {
         struct InitConfig {
             node_id: Option<String>,
         }
-        
+
         if let Ok(init_config) = serde_json::from_slice::<InitConfig>(config) {
             if let Some(node_id) = init_config.node_id {
                 let mut stored_id = self.node_id.write().await;
@@ -245,7 +255,7 @@ impl ServicePlugin for LynisService {
         info!("Reloading Lynis service (triggering immediate audit)");
         // Trigger immediate audit on reload
         let report = self.run_audit().await?;
-        
+
         // Upload report (would need etcd client passed in)
         // For now, just log success
         info!("Audit report generated: {}", self.config.report_path);
@@ -259,9 +269,7 @@ impl ServicePlugin for LynisService {
 
     async fn health_check(&self) -> Result<bool> {
         // Check if lynis is available
-        let output = Command::new("lynis")
-            .arg("--version")
-            .output();
+        let output = Command::new("lynis").arg("--version").output();
 
         match output {
             Ok(output) => Ok(output.status.success()),
@@ -269,4 +277,3 @@ impl ServicePlugin for LynisService {
         }
     }
 }
-

@@ -6,4 +6,3 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .compile(&["proto/cerbos.proto"], &["proto/"])?;
     Ok(())
 }
-
