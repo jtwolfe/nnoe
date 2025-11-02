@@ -21,7 +21,14 @@ Cargo.lock
 # Test artifacts
 *.log
 *.test
+*.test.out
+*.test.log
+*.test.bin
 /tmp/
+
+# Explicitly include Dockerfile.test files (they are source files, not artifacts)
+!Dockerfile.test
+!**/Dockerfile.test
 
 # Environment
 .env
