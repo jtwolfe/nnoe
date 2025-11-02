@@ -121,10 +121,14 @@ impl Orchestrator {
         if let Some(ref dhcp_config) = self.config.services.dhcp {
             if dhcp_config.enabled {
                 let kea_service = KeaService::new(dhcp_config.clone());
-                
+
                 // Set etcd client and node name for HA coordination
-                kea_service.set_etcd_client(Arc::clone(&self.etcd_client)).await;
-                kea_service.set_node_name(self.config.node.name.clone()).await;
+                kea_service
+                    .set_etcd_client(Arc::clone(&self.etcd_client))
+                    .await;
+                kea_service
+                    .set_node_name(self.config.node.name.clone())
+                    .await;
 
                 let plugin: Arc<RwLock<Box<dyn ServicePlugin + Send + Sync>>> =
                     Arc::new(RwLock::new(Box::new(kea_service)));
@@ -262,7 +266,7 @@ impl Orchestrator {
 
                                     // Increment config updates metric
                                     metrics.increment_config_updates();
-                                    
+
                                     // Notify plugins
                                     if let Err(e) =
                                         registry.notify_config_change(key.as_ref(), value).await

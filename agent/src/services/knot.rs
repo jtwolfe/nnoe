@@ -45,9 +45,9 @@ struct KnotZoneConfig {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct DnssecKeyConfig {
-    ksk_size: Option<u16>, // Key Signing Key size
-    zsk_size: Option<u16>, // Zone Signing Key size
-    algorithm: Option<String>, // DNSSEC algorithm (RSASHA256, ECDSAP256SHA256, etc.)
+    ksk_size: Option<u16>,         // Key Signing Key size
+    zsk_size: Option<u16>,         // Zone Signing Key size
+    algorithm: Option<String>,     // DNSSEC algorithm (RSASHA256, ECDSAP256SHA256, etc.)
     key_directory: Option<String>, // Directory for DNSSEC keys
 }
 
@@ -94,13 +94,19 @@ impl KnotService {
     }
 
     /// Generate DNSSEC keys for a zone using keymgr (Knot's key management tool)
-    async fn generate_dnssec_keys(&self, zone_name: &str, zone_domain: &str) -> Result<DnssecKeyInfo> {
+    async fn generate_dnssec_keys(
+        &self,
+        zone_name: &str,
+        zone_domain: &str,
+    ) -> Result<DnssecKeyInfo> {
         info!("Generating DNSSEC keys for zone: {}", zone_name);
 
         // Key directory - store in Knot's key directory
         let key_dir = PathBuf::from("/var/lib/knot/keys");
-        std::fs::create_dir_all(&key_dir)
-            .context(format!("Failed to create DNSSEC key directory: {:?}", key_dir))?;
+        std::fs::create_dir_all(&key_dir).context(format!(
+            "Failed to create DNSSEC key directory: {:?}",
+            key_dir
+        ))?;
 
         let ksk_path = key_dir.join(format!("{}.ksk.key", zone_name));
         let zsk_path = key_dir.join(format!("{}.zsk.key", zone_name));
@@ -179,7 +185,7 @@ impl KnotService {
     /// Rotate DNSSEC keys (prepare new keys for key rollover)
     async fn rotate_dnssec_keys(&self, zone_name: &str, zone_domain: &str) -> Result<()> {
         info!("Initiating DNSSEC key rotation for zone: {}", zone_name);
-        
+
         // Generate new keys with different filenames
         let key_dir = PathBuf::from("/var/lib/knot/keys");
         let new_ksk_path = key_dir.join(format!("{}.ksk.new.key", zone_name));
@@ -238,10 +244,10 @@ impl KnotService {
                     .values()
                     .map(|zone_data| {
                         let domain = zone_data.domain.clone();
-                        
+
                         // Get DNSSEC key info if available
                         let key_info = dnssec_keys.get(&domain);
-                        
+
                         KnotZoneConfig {
                             domain: domain.clone(),
                             file: zone_data.zone_file_path.to_string_lossy().to_string(),
@@ -329,14 +335,14 @@ impl KnotService {
                 } else {
                     let stderr = String::from_utf8_lossy(&output.stderr);
                     let stdout = String::from_utf8_lossy(&output.stdout);
-                    
+
                     // Check for specific errors that might be recoverable
                     if stderr.contains("config") || stderr.contains("syntax") {
                         error!("Knot configuration error: {}", stderr);
                         // Don't restart if there's a config error - it will just fail again
                         return Err(anyhow::anyhow!("Knot config error: {}", stderr));
                     }
-                    
+
                     warn!("Knot reload command failed: {} / {}", stderr, stdout);
                     // Fallback to systemctl restart for runtime errors
                     self.restart_knot().await
@@ -388,13 +394,13 @@ impl KnotService {
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
             let stdout = String::from_utf8_lossy(&output.stdout);
-            
+
             // Check for common issues
             if stderr.contains("already loaded") || stdout.contains("already loaded") {
                 // Try reload instead
                 return self.reload_knot().await;
             }
-            
+
             return Err(anyhow::anyhow!(
                 "Failed to start Knot: {} / {}",
                 stderr,
@@ -411,7 +417,9 @@ impl KnotService {
             .context("Failed to verify Knot service status")?;
 
         if !verify_output.status.success() {
-            return Err(anyhow::anyhow!("Knot service failed to start or is not active"));
+            return Err(anyhow::anyhow!(
+                "Knot service failed to start or is not active"
+            ));
         }
 
         info!("Knot DNS service restarted successfully");
@@ -420,7 +428,10 @@ impl KnotService {
 
     /// Initiate zone transfer (AXFR) to a secondary nameserver
     async fn initiate_zone_transfer(&self, zone_name: &str, secondary_ip: &str) -> Result<()> {
-        info!("Initiating zone transfer for {} to {}", zone_name, secondary_ip);
+        info!(
+            "Initiating zone transfer for {} to {}",
+            zone_name, secondary_ip
+        );
 
         // Use knotc to trigger zone transfer
         let output = Command::new("knotc")
@@ -445,11 +456,11 @@ impl KnotService {
 
         // Knot supports dynamic updates via knotc zone-commit
         // Updates can be applied directly to zone files or via API
-        
+
         // For now, we'll regenerate the zone file with new data
         // In production, this would use Knot's dynamic update API
         warn!("Dynamic update via zone file regeneration - full RFC 2136 support requires Knot API integration");
-        
+
         // Reload the zone after update
         let output = Command::new("knotc")
             .arg("zone-reload")
@@ -459,7 +470,10 @@ impl KnotService {
 
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
-            return Err(anyhow::anyhow!("Zone reload after update failed: {}", stderr));
+            return Err(anyhow::anyhow!(
+                "Zone reload after update failed: {}",
+                stderr
+            ));
         }
 
         info!("Dynamic update applied and zone reloaded");
@@ -533,14 +547,20 @@ impl ServicePlugin for KnotService {
                             if !dnssec_keys.contains_key(&zone_data.domain) {
                                 drop(dnssec_keys);
                                 // Generate keys
-                                match self.generate_dnssec_keys(zone_name, &zone_data.domain).await {
+                                match self
+                                    .generate_dnssec_keys(zone_name, &zone_data.domain)
+                                    .await
+                                {
                                     Ok(ki) => {
                                         let mut keys = self.dnssec_keys.write().await;
                                         keys.insert(zone_data.domain.clone(), ki.clone());
                                         Some(ki)
                                     }
                                     Err(e) => {
-                                        warn!("Failed to generate DNSSEC keys for {}: {}", zone_name, e);
+                                        warn!(
+                                            "Failed to generate DNSSEC keys for {}: {}",
+                                            zone_name, e
+                                        );
                                         None
                                     }
                                 }

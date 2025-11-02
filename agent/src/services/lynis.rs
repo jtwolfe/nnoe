@@ -92,7 +92,7 @@ impl LynisService {
     /// Parse Lynis report file and extract structured data
     async fn parse_lynis_report(&self) -> Result<LynisReport> {
         let report_path = PathBuf::from(&self.config.report_path);
-        
+
         // Read report file
         let report_content = fs::read_to_string(&report_path)
             .context(format!("Failed to read Lynis report: {:?}", report_path))?;
@@ -155,11 +155,14 @@ impl LynisService {
                 // Save previous section if exists
                 if let Some(section_name) = current_section.take() {
                     if !current_items.is_empty() {
-                        sections.insert(section_name.clone(), LynisSection {
-                            score: None, // Section scores not typically in report
-                            status: "completed".to_string(),
-                            items: current_items.clone(),
-                        });
+                        sections.insert(
+                            section_name.clone(),
+                            LynisSection {
+                                score: None, // Section scores not typically in report
+                                status: "completed".to_string(),
+                                items: current_items.clone(),
+                            },
+                        );
                     }
                     current_items.clear();
                 }
@@ -168,7 +171,7 @@ impl LynisService {
                 let section_name = cap.get(1).unwrap().as_str().trim().to_string();
                 current_section = Some(section_name);
             }
-            
+
             // Parse test items within sections
             // Pattern: "  - [X]" or "  - [NO]" or "  - [OK]" etc.
             if current_section.is_some() {
@@ -201,11 +204,14 @@ impl LynisService {
         // Save last section
         if let Some(section_name) = current_section {
             if !current_items.is_empty() {
-                sections.insert(section_name, LynisSection {
-                    score: None,
-                    status: "completed".to_string(),
-                    items: current_items,
-                });
+                sections.insert(
+                    section_name,
+                    LynisSection {
+                        score: None,
+                        status: "completed".to_string(),
+                        items: current_items,
+                    },
+                );
             }
         }
 
@@ -267,7 +273,8 @@ impl LynisService {
                         Ok(output) if output.status.success() => {
                             // Parse the report file
                             // Create a temporary service instance with minimal setup
-                            let mut service = LynisService::new(config.clone(), Some(node_id_str.clone()));
+                            let mut service =
+                                LynisService::new(config.clone(), Some(node_id_str.clone()));
                             // Set the node_id for parsing
                             {
                                 let mut node_id_guard = service.node_id.write().await;

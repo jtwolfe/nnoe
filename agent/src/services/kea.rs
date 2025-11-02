@@ -124,7 +124,7 @@ impl KeaService {
         // Check if VIP is present on the configured interface
         // Uses 'ip addr' command to check for VIP presence
         // VIP address should be configured in etcd or config (for now, we'll check the interface)
-        
+
         let interface = &self.config.interface;
         let output = Command::new("ip")
             .arg("addr")
@@ -134,22 +134,25 @@ impl KeaService {
             .context("Failed to execute 'ip addr' command")?;
 
         if !output.status.success() {
-            warn!("Failed to check VIP on interface {}: {}", interface, 
-                  String::from_utf8_lossy(&output.stderr));
+            warn!(
+                "Failed to check VIP on interface {}: {}",
+                interface,
+                String::from_utf8_lossy(&output.stderr)
+            );
             return Ok(false);
         }
 
         let stdout = String::from_utf8_lossy(&output.stdout);
-        
+
         // Check for secondary IP addresses (VIPs are typically configured as secondary)
         // Look for 'inet' entries that might be VIPs
         // A VIP is typically a secondary IP on an interface
         // We check for multiple 'inet' entries or specific patterns
-        
+
         // For now, we'll check if there are multiple IP addresses on the interface
         // In production, the VIP address should be configured and we'd check for that specific IP
         let inet_count = stdout.matches("inet ").count();
-        
+
         // If there's more than one IP, it might be a VIP
         // TODO: Add VIP address configuration to check for specific IP
         Ok(inet_count > 1)
@@ -181,11 +184,11 @@ impl KeaService {
         for (key, value) in nodes {
             // Key format: /nnoe/dhcp/ha-pairs/{pair_id}/nodes/{node_name}/status
             let parts: Vec<&str> = key.split('/').collect();
-            
+
             // Extract node name from key (second-to-last part, before "status")
             if parts.len() >= 2 {
                 let node_part = parts[parts.len() - 2]; // Second-to-last part is node name
-                
+
                 // Skip our own status
                 if node_part == node_name {
                     continue;

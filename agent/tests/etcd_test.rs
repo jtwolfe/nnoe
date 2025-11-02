@@ -57,7 +57,7 @@ mod tests {
         };
 
         let client_result = EtcdClient::new(&config).await;
-        
+
         // Should either succeed (if TLS is properly configured) or fail with specific TLS/certificate errors
         match client_result {
             Ok(_) => {

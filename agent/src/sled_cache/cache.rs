@@ -321,7 +321,7 @@ impl CacheManager {
     pub fn get_stats(&self) -> CacheStats {
         let size_bytes = self.db.size_on_disk().unwrap_or(0);
         let entry_count = self.db.len();
-        
+
         CacheStats {
             size_bytes,
             entry_count,

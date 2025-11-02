@@ -38,7 +38,7 @@ impl DnsdistService {
             .parent()
             .map(|p| p.join("rpz"))
             .unwrap_or_else(|| PathBuf::from("/var/lib/dnsdist/rpz"));
-        
+
         Self {
             config,
             rules: Arc::new(RwLock::new(Vec::new())),
@@ -65,7 +65,10 @@ impl DnsdistService {
         for (ip_or_subnet, roles) in role_mappings {
             // For single role, use it directly; for multiple roles, use first or check all
             if let Some(first_role) = roles.first() {
-                lua.push_str(&format!("    [\"{}\"] = \"{}\",\n", ip_or_subnet, first_role));
+                lua.push_str(&format!(
+                    "    [\"{}\"] = \"{}\",\n",
+                    ip_or_subnet, first_role
+                ));
             }
         }
 
@@ -74,7 +77,9 @@ impl DnsdistService {
         lua.push_str("  if role_map[client_ip] then\n");
         lua.push_str("    role = role_map[client_ip]\n");
         lua.push_str("  else\n");
-        lua.push_str("    -- Check subnet matches (simplified - full implementation would parse CIDR)\n");
+        lua.push_str(
+            "    -- Check subnet matches (simplified - full implementation would parse CIDR)\n",
+        );
         lua.push_str("    for subnet, mapped_role in pairs(role_map) do\n");
         lua.push_str("      if string.find(client_ip, subnet, 1, true) then\n");
         lua.push_str("        role = mapped_role\n");
@@ -141,7 +146,8 @@ impl DnsdistService {
         // Add anomaly detection rule (stub for future ML-based detection)
         lua_content.push_str("-- Anomaly Detection Rule\n");
         lua_content.push_str("addLuaAction(AllRule(), function(dq)\n");
-        lua_content.push_str("  -- Anomaly detection stub - to be enhanced with ML-based detection\n");
+        lua_content
+            .push_str("  -- Anomaly detection stub - to be enhanced with ML-based detection\n");
         lua_content.push_str("  -- Current checks:\n");
         lua_content.push_str("  -- 1. Query rate limiting (could be added)\n");
         lua_content.push_str("  -- 2. Unusual query patterns (future ML integration)\n");
@@ -360,10 +366,10 @@ impl DnsdistService {
 
             drop(rules);
 
-        // Regenerate Lua script and RPZ zone file
-        self.generate_lua_script().await?;
-        self.generate_rpz_zone_file().await?;
-        self.reload_dnsdist().await?;
+            // Regenerate Lua script and RPZ zone file
+            self.generate_lua_script().await?;
+            self.generate_rpz_zone_file().await?;
+            self.reload_dnsdist().await?;
         }
 
         Ok(())
@@ -463,7 +469,7 @@ impl DnsdistService {
     fn convert_cerbos_expr_to_lua(&self, expr: &str) -> String {
         // Enhanced expression converter for Cerbos to Lua
         // Handles common Cerbos expression patterns
-        
+
         let mut lua = expr.to_string().trim().to_string();
 
         // Replace request properties
@@ -523,7 +529,7 @@ impl DnsdistService {
     /// Generate RPZ zone file for downstream DNS servers
     async fn generate_rpz_zone_file(&self) -> Result<()> {
         let rpz_domains = self.rpz_domains.read().await;
-        
+
         if rpz_domains.is_empty() {
             return Ok(()); // No domains to block, skip zone file generation
         }
@@ -535,7 +541,7 @@ impl DnsdistService {
         ))?;
 
         let zone_file = self.rpz_zone_dir.join("rpz.db");
-        
+
         let mut zone_content = String::from("$TTL 3600\n");
         zone_content.push_str("$ORIGIN rpz.nnoe.local.\n");
         zone_content.push_str("@ IN SOA ns1.rpz.nnoe.local. admin.rpz.nnoe.local. (\n");
@@ -553,12 +559,13 @@ impl DnsdistService {
             zone_content.push_str(&format!("{} CNAME rpz-drop.nnoe.local.\n", domain));
         }
 
-        std::fs::write(&zone_file, zone_content).context(format!(
-            "Failed to write RPZ zone file: {:?}",
-            zone_file
-        ))?;
+        std::fs::write(&zone_file, zone_content)
+            .context(format!("Failed to write RPZ zone file: {:?}", zone_file))?;
 
-        info!("Generated RPZ zone file with {} blocked domains", rpz_domains.len());
+        info!(
+            "Generated RPZ zone file with {} blocked domains",
+            rpz_domains.len()
+        );
         Ok(())
     }
 }

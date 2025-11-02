@@ -1,6 +1,6 @@
 use anyhow::{Context, Result};
 use etcd_client::Client;
-use prometheus::{Gauge, Opts, Registry, Counter};
+use prometheus::{Counter, Gauge, Opts, Registry};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::time::interval;
@@ -139,7 +139,9 @@ impl MetricsCollector {
             }
 
             // Collect metrics from etcd if configured
-            if let (Some(ref endpoints), Some(ref prefix)) = (&self.etcd_endpoints, &self.etcd_prefix) {
+            if let (Some(ref endpoints), Some(ref prefix)) =
+                (&self.etcd_endpoints, &self.etcd_prefix)
+            {
                 if let Err(e) = self.collect_from_etcd(endpoints, prefix).await {
                     warn!("Failed to collect metrics from etcd: {}", e);
                     self.etcd_connected.set(0.0);
@@ -180,7 +182,10 @@ impl MetricsCollector {
         // Collect DHCP lease count from etcd
         let lease_prefix = format!("{}/dhcp/leases", prefix);
         let lease_resp = kv_client
-            .get(&lease_prefix, Some(etcd_client::GetOptions::new().with_prefix()))
+            .get(
+                &lease_prefix,
+                Some(etcd_client::GetOptions::new().with_prefix()),
+            )
             .await?;
         let lease_count = lease_resp.kvs().len();
         self.dhcp_leases_active.set(lease_count as f64);
@@ -204,7 +209,10 @@ impl MetricsCollector {
         // Format: /nnoe/dhcp/ha-pairs/{pair_id}/nodes/{node_name}/status
         let ha_prefix = format!("{}/dhcp/ha-pairs", prefix);
         if let Ok(ha_resp) = kv_client
-            .get(&ha_prefix, Some(etcd_client::GetOptions::new().with_prefix()))
+            .get(
+                &ha_prefix,
+                Some(etcd_client::GetOptions::new().with_prefix()),
+            )
             .await
         {
             // Try to find primary state

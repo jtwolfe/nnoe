@@ -133,7 +133,7 @@ impl NebulaManager {
             if let Ok(process_guard) = handle.block_on(async { self.process.read().await }) {
                 if let Some(child) = process_guard.as_ref() {
                     let pid = child.id();
-                    
+
                     // Check if process exists by attempting signal 0 (non-destructive check)
                     use nix::sys::signal::kill;
                     use nix::unistd::Pid;
@@ -163,10 +163,10 @@ impl NebulaManager {
     /// Check if Nebula process is responsive by sending signal 0
     pub async fn check_process_health(&self) -> bool {
         let process_guard = self.process.read().await;
-        
+
         if let Some(child) = process_guard.as_ref() {
             let pid = child.id();
-            
+
             // Check if process is still running via try_wait (non-blocking)
             match child.try_wait() {
                 Ok(Some(_)) => {
@@ -178,7 +178,7 @@ impl NebulaManager {
                     // Process is still running - verify with signal 0
                     use nix::sys::signal::kill;
                     use nix::unistd::Pid;
-                    
+
                     if let Ok(pid_i32) = pid.try_into() {
                         match kill(Pid::from_raw(pid_i32), None) {
                             Ok(_) => true, // Process is responsive
@@ -304,7 +304,7 @@ impl Drop for NebulaManager {
         // This is best-effort cleanup
         if self.is_running_flag.load(Ordering::Acquire) {
             warn!("NebulaManager being dropped while process is running - attempting cleanup");
-            
+
             // Attempt to stop the process using runtime handle
             if let Ok(handle) = tokio::runtime::Handle::try_current() {
                 // Use block_on to synchronously wait for async cleanup
@@ -313,14 +313,14 @@ impl Drop for NebulaManager {
                     if let Some(mut child) = process_guard.take() {
                         // Try graceful termination first
                         let _ = child.kill();
-                        
+
                         // Wait briefly for process to exit
                         let pid = child.id();
                         drop(child);
-                        
+
                         // If process still exists after a moment, try kill command
                         tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
-                        
+
                         // Verify process is gone, kill if needed
                         use nix::sys::signal::kill;
                         use nix::unistd::Pid;
@@ -345,7 +345,7 @@ impl Drop for NebulaManager {
                         let guard = self.process.read().await;
                         guard.as_ref().map(|c| c.id())
                     });
-                    
+
                     if let Some(pid) = pid_opt {
                         let _ = std::process::Command::new("kill")
                             .arg("-TERM")
