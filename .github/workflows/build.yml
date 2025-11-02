@@ -36,6 +36,8 @@ jobs:
           wget -q https://musl.cc/aarch64-linux-musl-cross.tgz
           sudo tar -xzf aarch64-linux-musl-cross.tgz -C /usr/local --strip-components=1
           rm aarch64-linux-musl-cross.tgz
+          # Verify installation
+          /usr/local/bin/aarch64-linux-musl-gcc --version || echo "Compiler installation failed"
         fi
     
     - name: Install protobuf compiler
@@ -57,24 +59,27 @@ jobs:
     
     - name: Build agent
       run: |
-        export PATH="/usr/local/bin:$PATH"
+        if [ "${{ matrix.target }}" = "aarch64-unknown-linux-musl" ]; then
+          export PATH="/usr/local/bin:$PATH"
+          export CC_aarch64_unknown_linux_musl=aarch64-linux-musl-gcc
+        fi
         cargo build --package nnoe-agent --release --target ${{ matrix.target }}
-      env:
-        CC_aarch64_unknown_linux_musl: ${{ matrix.target == 'aarch64-unknown-linux-musl' && 'aarch64-linux-musl-gcc' || '' }}
     
     - name: Build misp-sync
       run: |
-        export PATH="/usr/local/bin:$PATH"
+        if [ "${{ matrix.target }}" = "aarch64-unknown-linux-musl" ]; then
+          export PATH="/usr/local/bin:$PATH"
+          export CC_aarch64_unknown_linux_musl=aarch64-linux-musl-gcc
+        fi
         cargo build --package nnoe-misp-sync --release --target ${{ matrix.target }}
-      env:
-        CC_aarch64_unknown_linux_musl: ${{ matrix.target == 'aarch64-unknown-linux-musl' && 'aarch64-linux-musl-gcc' || '' }}
     
     - name: Build prometheus-exporter
       run: |
-        export PATH="/usr/local/bin:$PATH"
+        if [ "${{ matrix.target }}" = "aarch64-unknown-linux-musl" ]; then
+          export PATH="/usr/local/bin:$PATH"
+          export CC_aarch64_unknown_linux_musl=aarch64-linux-musl-gcc
+        fi
         cargo build --package nnoe-prometheus-exporter --release --target ${{ matrix.target }}
-      env:
-        CC_aarch64_unknown_linux_musl: ${{ matrix.target == 'aarch64-unknown-linux-musl' && 'aarch64-linux-musl-gcc' || '' }}
     
     - name: Upload artifacts
       uses: actions/upload-artifact@v4

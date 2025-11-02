@@ -40,7 +40,7 @@ services:
   agent-test:
     build:
       context: ../../..
-      dockerfile: ./testing/integration/e2e/Dockerfile.test
+      dockerfile: testing/integration/e2e/Dockerfile.test
     container_name: nnoe-agent-test
     depends_on:
       etcd:

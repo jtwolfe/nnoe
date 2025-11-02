@@ -1,8 +1,8 @@
 // End-to-end tests for NNOE
 
 use nnoe_agent::config::AgentConfig;
-use nnoe_agent::etcd::EtcdClient;
 use nnoe_agent::config::EtcdConfig;
+use nnoe_agent::etcd::EtcdClient;
 use std::time::Duration;
 use tokio::time::sleep;
 
@@ -128,4 +128,3 @@ async fn test_threat_intelligence_flow() {
 
     assert!(stored.is_some());
 }
-
