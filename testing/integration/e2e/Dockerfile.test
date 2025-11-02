@@ -13,6 +13,7 @@ COPY Cargo.toml ./
 COPY agent/ ./agent/
 COPY integrations/misp-sync/ ./integrations/misp-sync/
 COPY management/monitoring/prometheus-exporter/ ./management/monitoring/prometheus-exporter/
+COPY testing/performance/benchmarks/ ./testing/performance/benchmarks/
 
 # Build dependencies
 RUN cargo build --release
