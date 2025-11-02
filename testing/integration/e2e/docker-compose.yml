@@ -51,7 +51,7 @@ services:
     volumes:
       - ../../../target:/target:ro
       - test-cache:/var/nnoe/cache
-    command: ["/bin/sh", "-c", "cargo test --test e2e_tests"]
+    command: ["/bin/sh", "-c", "cargo test --test e2e_tests --package nnoe-agent"]
 
 volumes:
   etcd-data:
