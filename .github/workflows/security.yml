@@ -1,0 +1,96 @@
+name: Security Scan
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+  schedule:
+    # Run weekly security scans
+    - cron: '0 0 * * 0'
+
+jobs:
+  security:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Install Rust toolchain
+      uses: dtolnay/rust-toolchain@stable
+    
+    - name: Install security tools
+      timeout-minutes: 10
+      run: |
+        echo "Installing security scanning tools..."
+        # Install cargo-audit
+        cargo install cargo-audit --version "^0.18" || true
+        # Install cargo-deny (more comprehensive than cargo-audit)
+        cargo install cargo-deny --version "^0.14" || true
+        echo "Security tools installed"
+      continue-on-error: true
+    
+    - name: Cache cargo registry
+      uses: actions/cache@v4
+      with:
+        path: |
+          ~/.cargo/registry
+          ~/.cargo/git
+          ~/.cargo/bin
+          target/
+        key: ${{ runner.os }}-cargo-security-${{ hashFiles('**/Cargo.toml', '**/Cargo.lock') }}
+        restore-keys: |
+          ${{ runner.os }}-cargo-security-
+          ${{ runner.os }}-cargo-
+    
+    - name: Run cargo audit
+      timeout-minutes: 10
+      run: |
+        echo "Running cargo-audit..."
+        if command -v cargo-audit &> /dev/null; then
+          cargo audit || {
+            echo "::warning::cargo-audit found vulnerabilities"
+            echo "Review the output above and update dependencies if needed"
+          }
+        else
+          echo "::warning::cargo-audit not available, skipping"
+        fi
+      continue-on-error: true
+    
+    - name: Run cargo deny (license and security checks)
+      timeout-minutes: 15
+      run: |
+        echo "Running cargo-deny..."
+        if command -v cargo-deny &> /dev/null; then
+          # Initialize cargo-deny if config doesn't exist
+          if [ ! -f deny.toml ]; then
+            cargo deny init || true
+          fi
+          cargo deny check || {
+            echo "::warning::cargo-deny found issues"
+            echo "Review the output above for license or security violations"
+          }
+        else
+          echo "::warning::cargo-deny not available, skipping"
+        fi
+      continue-on-error: true
+    
+    - name: Run cargo clippy security lints
+      timeout-minutes: 15
+      run: |
+        echo "Running clippy with security-focused lints..."
+        cargo clippy --workspace --all-targets -- \
+          -D clippy::unwrap_used \
+          -D clippy::expect_used \
+          -D clippy::panic \
+          -D clippy::todo \
+          -D clippy::unimplemented \
+          -D clippy::indexing_slicing \
+          -D clippy::integer_arithmetic \
+          || {
+            echo "::error::Clippy found security-related issues"
+            exit 1
+          }
+        echo "Security linting passed"
+

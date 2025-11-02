@@ -2,6 +2,7 @@ use crate::config::DnsdistServiceConfig;
 use crate::plugin::ServicePlugin;
 use anyhow::{Context, Result};
 use async_trait::async_trait;
+use regex::Regex;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -15,8 +16,10 @@ pub struct DnsdistService {
     config: DnsdistServiceConfig,
     rules: Arc<RwLock<Vec<DnsdistRule>>>,
     rpz_domains: Arc<RwLock<HashMap<String, String>>>, // domain -> source
+    role_mappings: Arc<RwLock<HashMap<String, Vec<String>>>>, // IP/subnet -> roles
     config_path: PathBuf,
     lua_script_path: PathBuf,
+    rpz_zone_dir: PathBuf,
 }
 
 #[derive(Debug, Clone)]
@@ -30,18 +33,63 @@ impl DnsdistService {
     pub fn new(config: DnsdistServiceConfig) -> Self {
         let config_path = PathBuf::from(&config.config_path);
         let lua_script_path = PathBuf::from(&config.lua_script_path);
+        // RPZ zone directory - default to parent of lua script with /rpz subdirectory
+        let rpz_zone_dir = lua_script_path
+            .parent()
+            .map(|p| p.join("rpz"))
+            .unwrap_or_else(|| PathBuf::from("/var/lib/dnsdist/rpz"));
+        
         Self {
             config,
             rules: Arc::new(RwLock::new(Vec::new())),
             rpz_domains: Arc::new(RwLock::new(HashMap::new())),
+            role_mappings: Arc::new(RwLock::new(HashMap::new())),
             config_path,
             lua_script_path,
+            rpz_zone_dir,
         }
+    }
+
+    /// Generate role lookup Lua code based on IP/subnet mappings
+    fn generate_role_lookup_lua(&self, role_mappings: &HashMap<String, Vec<String>>) -> String {
+        if role_mappings.is_empty() {
+            return "  local role = \"user\" -- Default role, no mappings configured\n".to_string();
+        }
+
+        let mut lua = String::from("  -- Role lookup based on client IP\n");
+        lua.push_str("  local client_ip = dq.remoteaddr:toString()\n");
+        lua.push_str("  local role = \"user\" -- Default role\n\n");
+        lua.push_str("  -- Role mappings from etcd\n");
+        lua.push_str("  local role_map = {\n");
+
+        for (ip_or_subnet, roles) in role_mappings {
+            // For single role, use it directly; for multiple roles, use first or check all
+            if let Some(first_role) = roles.first() {
+                lua.push_str(&format!("    [\"{}\"] = \"{}\",\n", ip_or_subnet, first_role));
+            }
+        }
+
+        lua.push_str("  }\n\n");
+        lua.push_str("  -- Check exact IP match first, then check subnets\n");
+        lua.push_str("  if role_map[client_ip] then\n");
+        lua.push_str("    role = role_map[client_ip]\n");
+        lua.push_str("  else\n");
+        lua.push_str("    -- Check subnet matches (simplified - full implementation would parse CIDR)\n");
+        lua.push_str("    for subnet, mapped_role in pairs(role_map) do\n");
+        lua.push_str("      if string.find(client_ip, subnet, 1, true) then\n");
+        lua.push_str("        role = mapped_role\n");
+        lua.push_str("        break\n");
+        lua.push_str("      end\n");
+        lua.push_str("    end\n");
+        lua.push_str("  end\n");
+
+        lua
     }
 
     async fn generate_lua_script(&self) -> Result<()> {
         let rules = self.rules.read().await;
         let rpz_domains = self.rpz_domains.read().await;
+        let role_mappings = self.role_mappings.read().await;
 
         // Ensure Lua script directory exists
         if let Some(parent) = self.lua_script_path.parent() {
@@ -53,6 +101,14 @@ impl DnsdistService {
 
         let mut lua_content = String::from("-- NNOE Generated dnsdist Lua Rules\n");
         lua_content.push_str("-- Auto-generated, do not edit manually\n\n");
+
+        // Generate shared role lookup function (used by all rules)
+        lua_content.push_str("-- Shared role lookup function\n");
+        lua_content.push_str("local function get_client_role(dq)\n");
+        let role_lookup_code = self.generate_role_lookup_lua(&role_mappings);
+        lua_content.push_str(&role_lookup_code);
+        lua_content.push_str("  return role\n");
+        lua_content.push_str("end\n\n");
 
         // Add RPZ blocking rules
         if !rpz_domains.is_empty() {
@@ -82,10 +138,24 @@ impl DnsdistService {
             lua_content.push_str("\n\n");
         }
 
-        // Add anomaly detection rule placeholder
+        // Add anomaly detection rule (stub for future ML-based detection)
         lua_content.push_str("-- Anomaly Detection Rule\n");
         lua_content.push_str("addLuaAction(AllRule(), function(dq)\n");
-        lua_content.push_str("  -- Anomaly detection logic will be implemented\n");
+        lua_content.push_str("  -- Anomaly detection stub - to be enhanced with ML-based detection\n");
+        lua_content.push_str("  -- Current checks:\n");
+        lua_content.push_str("  -- 1. Query rate limiting (could be added)\n");
+        lua_content.push_str("  -- 2. Unusual query patterns (future ML integration)\n");
+        lua_content.push_str("  -- 3. DNS tunneling detection (future)\n");
+        lua_content.push_str("  local qname = dq.qname:toString()\n");
+        lua_content.push_str("  local qtype = dq.qtype:toString()\n");
+        lua_content.push_str("  \n");
+        lua_content.push_str("  -- Basic anomaly checks\n");
+        lua_content.push_str("  -- Check for very long domain names (potential tunneling)\n");
+        lua_content.push_str("  if string.len(qname) > 250 then\n");
+        lua_content.push_str("    return DNSAction.Drop -- Suspiciously long domain\n");
+        lua_content.push_str("  end\n");
+        lua_content.push_str("  \n");
+        lua_content.push_str("  -- Future: Integrate with ML model for pattern detection\n");
         lua_content.push_str("  -- if isAnomalous(dq) then return DNSAction.Drop end\n");
         lua_content.push_str("  return DNSAction.None\n");
         lua_content.push_str("end)\n");
@@ -290,9 +360,10 @@ impl DnsdistService {
 
             drop(rules);
 
-            // Regenerate Lua script
-            self.generate_lua_script().await?;
-            self.reload_dnsdist().await?;
+        // Regenerate Lua script and RPZ zone file
+        self.generate_lua_script().await?;
+        self.generate_rpz_zone_file().await?;
+        self.reload_dnsdist().await?;
         }
 
         Ok(())
@@ -304,13 +375,18 @@ impl DnsdistService {
         _policy_id: &str,
         _rule_idx: usize,
     ) -> Result<String> {
-        // This is a simplified parser - in production, use a proper expression parser
+        // Enhanced parser for Cerbos expressions to Lua conversion
         let mut lua = String::from("addLuaAction(AllRule(), function(dq)\n");
         lua.push_str("  local qname = dq.qname:toString()\n");
         lua.push_str("  local current_time = os.time(os.date(\"*t\"))\n");
         lua.push_str("  local current_hour = tonumber(os.date(\"%H\", current_time))\n");
+        lua.push_str("  local current_minute = tonumber(os.date(\"%M\", current_time))\n");
+        lua.push_str("  local current_day = tonumber(os.date(\"%w\", current_time)) -- 0=Sunday, 6=Saturday\n");
 
-        // Extract roles
+        // Role lookup - use the shared function generated in the script
+        lua.push_str("  local role = get_client_role(dq)\n");
+
+        // Extract roles and check
         if let Some(roles) = rule.get("roles").and_then(|r| r.as_array()) {
             let role_checks: Vec<String> = roles
                 .iter()
@@ -319,14 +395,14 @@ impl DnsdistService {
                 .collect();
 
             if !role_checks.is_empty() {
-                lua.push_str(
-                    "  -- Role-based check (placeholder - role would come from request context)\n",
-                );
-                lua.push_str("  local role = \"user\" -- TODO: Extract from request\n");
+                lua.push_str("  -- Role-based access check\n");
                 lua.push_str(&format!(
                     "  local has_role = ({})\n",
                     role_checks.join(" or ")
                 ));
+                lua.push_str("  if not has_role then\n");
+                lua.push_str("    return DNSAction.Drop -- Role check failed\n");
+                lua.push_str("  end\n");
             }
         }
 
@@ -385,26 +461,105 @@ impl DnsdistService {
     }
 
     fn convert_cerbos_expr_to_lua(&self, expr: &str) -> String {
-        // Simple expression converter - in production, use a proper parser
-        let mut lua = expr.to_string();
+        // Enhanced expression converter for Cerbos to Lua
+        // Handles common Cerbos expression patterns
+        
+        let mut lua = expr.to_string().trim().to_string();
 
-        // Replace common patterns
+        // Replace request properties
         lua = lua.replace("request.time.hour", "current_hour");
-        lua = lua.replace("request.domain.contains", "string.find(qname");
-        lua = lua.replace("!", "not ");
+        lua = lua.replace("request.time.minute", "current_minute");
+        lua = lua.replace("request.time.day", "current_day");
+        lua = lua.replace("request.domain", "qname");
+
+        // Handle contains() method calls
+        // Pattern: request.domain.contains("malicious")
+        // Convert to: string.find(qname, "malicious") ~= nil
+        if let Ok(contains_pattern) = Regex::new(r#"(\w+)\.contains\(([^)]+)\)"#) {
+            lua = contains_pattern
+                .replace_all(&lua, |caps: &regex::Captures<'_>| {
+                    let var = caps.get(1).unwrap().as_str();
+                    let search = caps.get(2).unwrap().as_str();
+                    format!("string.find({}, {}) ~= nil", var, search)
+                })
+                .to_string();
+        }
+
+        // Handle string operations
+        lua = lua.replace("request.domain.startsWith", "string.find(qname, ");
+        lua = lua.replace("request.domain.endsWith", "string.match(qname, ");
+
+        // Replace logical operators
         lua = lua.replace("&&", " and ");
         lua = lua.replace("||", " or ");
+        lua = lua.replace("!", "not ");
 
-        // Handle contains with proper string matching
-        if lua.contains("string.find(qname") {
-            lua = lua.replace("\"", "'");
-            // Close the find call
+        // Replace comparison operators (Cerbos uses different syntax sometimes)
+        lua = lua.replace(" == ", " == ");
+        lua = lua.replace(" != ", " ~= ");
+        lua = lua.replace(" >= ", " >= ");
+        lua = lua.replace(" <= ", " <= ");
+        lua = lua.replace(" > ", " > ");
+        lua = lua.replace(" < ", " < ");
+
+        // Handle boolean literals
+        lua = lua.replace("true", "true");
+        lua = lua.replace("false", "false");
+
+        // Fix any unclosed string.find calls
+        if lua.contains("string.find(qname") && !lua.contains("~= nil") && !lua.contains("== nil") {
+            // Check if it's already a complete expression
             if !lua.contains(")") {
                 lua = format!("{} ~= nil", lua);
             }
         }
 
+        // Clean up quotes (Lua uses single quotes for strings in patterns)
+        lua = lua.replace("\"", "'");
+
         lua
+    }
+
+    /// Generate RPZ zone file for downstream DNS servers
+    async fn generate_rpz_zone_file(&self) -> Result<()> {
+        let rpz_domains = self.rpz_domains.read().await;
+        
+        if rpz_domains.is_empty() {
+            return Ok(()); // No domains to block, skip zone file generation
+        }
+
+        // Ensure RPZ directory exists
+        std::fs::create_dir_all(&self.rpz_zone_dir).context(format!(
+            "Failed to create RPZ zone directory: {:?}",
+            self.rpz_zone_dir
+        ))?;
+
+        let zone_file = self.rpz_zone_dir.join("rpz.db");
+        
+        let mut zone_content = String::from("$TTL 3600\n");
+        zone_content.push_str("$ORIGIN rpz.nnoe.local.\n");
+        zone_content.push_str("@ IN SOA ns1.rpz.nnoe.local. admin.rpz.nnoe.local. (\n");
+        zone_content.push_str("  1 ; Serial\n");
+        zone_content.push_str("  3600 ; Refresh\n");
+        zone_content.push_str("  1800 ; Retry\n");
+        zone_content.push_str("  604800 ; Expire\n");
+        zone_content.push_str("  86400 ; Minimum TTL\n");
+        zone_content.push_str(")\n\n");
+        zone_content.push_str("; RPZ zone for threat blocking\n");
+        zone_content.push_str("; Auto-generated by NNOE\n\n");
+
+        // Add blocked domains as CNAME to rpz-drop.nnoe.local
+        for domain in rpz_domains.keys() {
+            zone_content.push_str(&format!("{} CNAME rpz-drop.nnoe.local.\n", domain));
+        }
+
+        std::fs::write(&zone_file, zone_content).context(format!(
+            "Failed to write RPZ zone file: {:?}",
+            zone_file
+        ))?;
+
+        info!("Generated RPZ zone file with {} blocked domains", rpz_domains.len());
+        Ok(())
     }
 }
 
@@ -419,9 +574,10 @@ impl ServicePlugin for DnsdistService {
         info!("Config path: {:?}", self.config_path);
         info!("Lua script path: {:?}", self.lua_script_path);
 
-        // Generate initial config and Lua script
+        // Generate initial config, Lua script, and RPZ zone file
         self.generate_lua_script().await?;
         self.generate_config().await?;
+        self.generate_rpz_zone_file().await?;
 
         Ok(())
     }
@@ -445,6 +601,7 @@ impl ServicePlugin for DnsdistService {
                         drop(rpz);
 
                         self.generate_lua_script().await?;
+                        self.generate_rpz_zone_file().await?;
                         self.reload_dnsdist().await?;
 
                         info!("Threat domain added to RPZ: {}", threat.domain);
@@ -458,6 +615,32 @@ impl ServicePlugin for DnsdistService {
             // Parse Cerbos policy and convert to dnsdist Lua rule
             if let Err(e) = self.process_cerbos_policy(key, value).await {
                 error!("Failed to process Cerbos policy: {}", e);
+            }
+        } else if key.contains("/role-mappings/") {
+            // Update role mappings (IP/subnet -> roles)
+            // Key format: /nnoe/role-mappings/<ip_or_subnet>
+            let parts: Vec<&str> = key.split('/').collect();
+            if let Some(ip_or_subnet) = parts.last() {
+                #[derive(serde::Deserialize)]
+                struct RoleMappingData {
+                    roles: Vec<String>,
+                }
+
+                match serde_json::from_slice::<RoleMappingData>(value) {
+                    Ok(mapping) => {
+                        let mut role_map = self.role_mappings.write().await;
+                        role_map.insert(ip_or_subnet.to_string(), mapping.roles);
+                        drop(role_map);
+
+                        self.generate_lua_script().await?;
+                        self.reload_dnsdist().await?;
+
+                        info!("Role mapping updated for: {}", ip_or_subnet);
+                    }
+                    Err(e) => {
+                        error!("Failed to parse role mapping data: {}", e);
+                    }
+                }
             }
         }
 

@@ -121,7 +121,86 @@ impl NebulaManager {
     }
 
     pub fn is_running(&self) -> bool {
+        // Check atomic flag first (fast path)
+        if !self.is_running_flag.load(Ordering::Acquire) {
+            return false;
+        }
+
+        // Verify process is actually running by checking PID file or signal 0
+        // For synchronous check, we verify via runtime handle if available
+        if let Ok(handle) = tokio::runtime::Handle::try_current() {
+            // Check if process exists in the guard
+            if let Ok(process_guard) = handle.block_on(async { self.process.read().await }) {
+                if let Some(child) = process_guard.as_ref() {
+                    let pid = child.id();
+                    
+                    // Check if process exists by attempting signal 0 (non-destructive check)
+                    use nix::sys::signal::kill;
+                    use nix::unistd::Pid;
+                    // Convert u32 PID to i32 for nix
+                    if let Ok(pid_i32) = pid.try_into() {
+                        match kill(Pid::from_raw(pid_i32), None) {
+                            Ok(_) => return true, // Process exists and is responsive
+                            Err(_) => {
+                                // Process doesn't exist, update flag
+                                self.is_running_flag.store(false, Ordering::Release);
+                                return false;
+                            }
+                        }
+                    }
+                } else {
+                    // No process handle, update flag
+                    self.is_running_flag.store(false, Ordering::Release);
+                    return false;
+                }
+            }
+        }
+
+        // Fallback to flag value (when runtime handle not available)
         self.is_running_flag.load(Ordering::Acquire)
+    }
+
+    /// Check if Nebula process is responsive by sending signal 0
+    pub async fn check_process_health(&self) -> bool {
+        let process_guard = self.process.read().await;
+        
+        if let Some(child) = process_guard.as_ref() {
+            let pid = child.id();
+            
+            // Check if process is still running via try_wait (non-blocking)
+            match child.try_wait() {
+                Ok(Some(_)) => {
+                    // Process has exited
+                    self.is_running_flag.store(false, Ordering::Release);
+                    false
+                }
+                Ok(None) => {
+                    // Process is still running - verify with signal 0
+                    use nix::sys::signal::kill;
+                    use nix::unistd::Pid;
+                    
+                    if let Ok(pid_i32) = pid.try_into() {
+                        match kill(Pid::from_raw(pid_i32), None) {
+                            Ok(_) => true, // Process is responsive
+                            Err(_) => {
+                                self.is_running_flag.store(false, Ordering::Release);
+                                false
+                            }
+                        }
+                    } else {
+                        true // Assume running if PID conversion fails
+                    }
+                }
+                Err(_) => {
+                    // Error checking, assume not running
+                    self.is_running_flag.store(false, Ordering::Release);
+                    false
+                }
+            }
+        } else {
+            self.is_running_flag.store(false, Ordering::Release);
+            false
+        }
     }
 
     async fn monitor_process_with_restart(
@@ -224,15 +303,55 @@ impl Drop for NebulaManager {
         // Try to stop the process synchronously if possible
         // This is best-effort cleanup
         if self.is_running_flag.load(Ordering::Acquire) {
-            warn!("NebulaManager being dropped while process is running");
-            // Attempt to kill the process using a blocking runtime handle
+            warn!("NebulaManager being dropped while process is running - attempting cleanup");
+            
+            // Attempt to stop the process using runtime handle
             if let Ok(handle) = tokio::runtime::Handle::try_current() {
-                let guard = handle.block_on(async { self.process.write().await });
-                if let Some(child) = guard.as_ref() {
-                    let _ = std::process::Command::new("kill")
-                        .arg("-TERM")
-                        .arg(child.id().to_string())
-                        .output();
+                // Use block_on to synchronously wait for async cleanup
+                let _ = handle.block_on(async {
+                    let mut process_guard = self.process.write().await;
+                    if let Some(mut child) = process_guard.take() {
+                        // Try graceful termination first
+                        let _ = child.kill();
+                        
+                        // Wait briefly for process to exit
+                        let pid = child.id();
+                        drop(child);
+                        
+                        // If process still exists after a moment, try kill command
+                        tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+                        
+                        // Verify process is gone, kill if needed
+                        use nix::sys::signal::kill;
+                        use nix::unistd::Pid;
+                        if let Ok(pid_i32) = pid.try_into() {
+                            if kill(Pid::from_raw(pid_i32), None).is_ok() {
+                                // Process still exists, force kill
+                                let _ = std::process::Command::new("kill")
+                                    .arg("-KILL")
+                                    .arg(pid.to_string())
+                                    .output();
+                                warn!("Force killed Nebula process (PID: {})", pid);
+                            }
+                        }
+                    }
+                    self.is_running_flag.store(false, Ordering::Release);
+                });
+            } else {
+                // No runtime handle available, try direct kill command
+                // This is a fallback for cases where we don't have a runtime
+                if let Ok(handle) = tokio::runtime::Handle::try_current() {
+                    let pid_opt = handle.block_on(async {
+                        let guard = self.process.read().await;
+                        guard.as_ref().map(|c| c.id())
+                    });
+                    
+                    if let Some(pid) = pid_opt {
+                        let _ = std::process::Command::new("kill")
+                            .arg("-TERM")
+                            .arg(pid.to_string())
+                            .output();
+                    }
                 }
             }
         }

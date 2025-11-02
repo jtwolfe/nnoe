@@ -6,66 +6,255 @@ on:
       - 'v*.*.*'
 
 jobs:
-  release:
+  build-binaries:
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [x86_64-unknown-linux-musl, aarch64-unknown-linux-musl]
     runs-on: ubuntu-latest
-    timeout-minutes: 45
-    
-    permissions:
-      contents: write
+    timeout-minutes: 60
     
     steps:
     - uses: actions/checkout@v4
     
     - name: Install Rust toolchain
       uses: dtolnay/rust-toolchain@stable
+      with:
+        targets: ${{ matrix.target }}
     
-    - name: Install protobuf compiler
+    - name: Install cross-compilation tools
+      timeout-minutes: 10
       run: |
         sudo apt-get update
-        sudo apt-get install -y protobuf-compiler libprotobuf-dev
+        sudo apt-get install -y protobuf-compiler libprotobuf-dev musl-tools musl-dev
+        if [ "${{ matrix.target }}" = "aarch64-unknown-linux-musl" ]; then
+          # Use cross crate for easier aarch64 cross-compilation
+          cargo install cross --git https://github.com/cross-rs/cross || true
+        fi
+    
+    - name: Cache cargo registry
+      uses: actions/cache@v4
+      with:
+        path: |
+          ~/.cargo/registry
+          ~/.cargo/git
+          target/
+        key: ${{ runner.os }}-cargo-release-${{ matrix.target }}-${{ hashFiles('**/Cargo.toml', '**/Cargo.lock') }}
+        restore-keys: |
+          ${{ runner.os }}-cargo-release-${{ matrix.target }}-
+          ${{ runner.os }}-cargo-
     
     - name: Build release binaries
-      timeout-minutes: 30
+      timeout-minutes: 45
       run: |
-        echo "Building release binaries..."
-        cargo build --workspace --release || {
-          echo "::error::Build failed"
+        echo "Building for ${{ matrix.target }}..."
+        
+        # Set up cross-compilation environment
+        if [ "${{ matrix.target }}" = "aarch64-unknown-linux-musl" ]; then
+          export PATH="/usr/local/bin:$PATH"
+          export CC_aarch64_unknown_linux_musl=aarch64-linux-musl-gcc
+        fi
+        
+        # Build agent
+        cargo build --package nnoe-agent --release --target ${{ matrix.target }} || {
+          echo "::error::Failed to build nnoe-agent for ${{ matrix.target }}"
           exit 1
         }
-        echo "Build successful"
+        
+        # Build misp-sync
+        cargo build --package nnoe-misp-sync --release --target ${{ matrix.target }} || {
+          echo "::error::Failed to build misp-sync for ${{ matrix.target }}"
+          exit 1
+        }
+        
+        # Build prometheus-exporter
+        cargo build --package nnoe-prometheus-exporter --release --target ${{ matrix.target }} || {
+          echo "::error::Failed to build prometheus-exporter for ${{ matrix.target }}"
+          exit 1
+        }
+        
+        echo "Build successful for ${{ matrix.target }}"
     
-    - name: Create release archive
-      timeout-minutes: 5
+    - name: Upload release binaries
+      uses: actions/upload-artifact@v4
+      with:
+        name: release-binaries-${{ matrix.target }}
+        path: |
+          target/${{ matrix.target }}/release/nnoe-agent
+          target/${{ matrix.target }}/release/misp-sync
+          target/${{ matrix.target }}/release/nnoe-prometheus-exporter
+        retention-days: 90
+        compression-level: 6
+  
+  release:
+    needs: build-binaries
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    
+    permissions:
+      contents: write
+      packages: write
+      attestations: write
+      id-token: write
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Download all binaries
+      uses: actions/download-artifact@v4
+      with:
+        pattern: release-binaries-*
+        merge-multiple: true
+    
+    - name: Create release archives
+      timeout-minutes: 10
       run: |
-        echo "Creating release archive..."
+        echo "Creating release archives..."
+        
+        # Create per-architecture archives
+        for arch in x86_64-unknown-linux-musl aarch64-unknown-linux-musl; do
+          mkdir -p "release-$arch"
+          
+          # Copy binaries from downloaded artifacts
+          if [ -d "release-binaries-$arch" ]; then
+            cp "release-binaries-$arch/nnoe-agent" "release-$arch/nnoe-agent" || true
+            cp "release-binaries-$arch/misp-sync" "release-$arch/misp-sync" || true
+            cp "release-binaries-$arch/nnoe-prometheus-exporter" "release-$arch/nnoe-prometheus-exporter" || true
+            
+            # Create archive
+            tar czf "nnoe-${{ github.ref_name }}-$arch.tar.gz" -C "release-$arch" . || {
+              echo "::error::Failed to create archive for $arch"
+              exit 1
+            }
+            
+            echo "Created: nnoe-${{ github.ref_name }}-$arch.tar.gz"
+          fi
+        done
+        
+        # Create combined archive with amd64 binaries (default)
         mkdir -p release
-        cp target/release/nnoe-agent release/ || {
-          echo "::error::nnoe-agent binary not found"
+        if [ -d "release-binaries-x86_64-unknown-linux-musl" ]; then
+          cp release-binaries-x86_64-unknown-linux-musl/* release/ 2>/dev/null || true
+        fi
+        tar czf "nnoe-${{ github.ref_name }}.tar.gz" -C release . || {
+          echo "::error::Failed to create combined archive"
           exit 1
         }
-        cp target/release/misp-sync release/ || {
-          echo "::error::misp-sync binary not found"
-          exit 1
-        }
-        tar czf nnoe-${{ github.ref_name }}.tar.gz release/ || {
-          echo "::error::Failed to create archive"
-          exit 1
-        }
-        echo "Release archive created: nnoe-${{ github.ref_name }}.tar.gz"
-        ls -lh nnoe-${{ github.ref_name }}.tar.gz
+        
+        echo "Release archives created"
+        ls -lh nnoe-${{ github.ref_name }}*.tar.gz
     
     - name: Create GitHub Release
       uses: softprops/action-gh-release@v2
       with:
         files: |
           nnoe-${{ github.ref_name }}.tar.gz
+          nnoe-${{ github.ref_name }}-x86_64-unknown-linux-musl.tar.gz
+          nnoe-${{ github.ref_name }}-aarch64-unknown-linux-musl.tar.gz
         generate_release_notes: true
+        draft: false
+        prerelease: ${{ contains(github.ref_name, '-') }}
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+  
+  docker:
+    needs: release
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
     
-    - name: Build and push Docker images
-      if: startsWith(github.ref, 'refs/tags/v')
-      run: |
-        echo "Docker build would go here"
-        # docker build -t nnoe/agent:${{ github.ref_name }} -f deployments/docker/Dockerfile.agent .
-        # docker push nnoe/agent:${{ github.ref_name }}
+    permissions:
+      contents: read
+      packages: write
+      attestations: write
+      id-token: write
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+      with:
+        platforms: linux/amd64,linux/arm64
+        driver-opts: network=host
+    
+    - name: Login to GitHub Container Registry
+      uses: docker/login-action@v3
+      with:
+        registry: ghcr.io
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+    
+    - name: Extract metadata for agent
+      id: meta-agent
+      uses: docker/metadata-action@v5
+      with:
+        images: ghcr.io/${{ github.repository }}/agent
+        tags: |
+          type=ref,event=tag
+          type=semver,pattern={{version}}
+          type=semver,pattern={{major}}.{{minor}}
+          type=semver,pattern={{major}}
+          type=raw,value=latest
+    
+    - name: Build and push Docker image (agent)
+      uses: docker/build-push-action@v5
+      with:
+        context: .
+        file: ./deployments/docker/Dockerfile.agent
+        platforms: linux/amd64,linux/arm64
+        push: true
+        tags: ${{ steps.meta-agent.outputs.tags }}
+        labels: ${{ steps.meta-agent.outputs.labels }}
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
+        build-args: |
+          BUILDKIT_INLINE_CACHE=1
+    
+    - name: Extract metadata for MISP sync
+      id: meta-misp
+      uses: docker/metadata-action@v5
+      with:
+        images: ghcr.io/${{ github.repository }}/misp-sync
+        tags: |
+          type=ref,event=tag
+          type=semver,pattern={{version}}
+          type=semver,pattern={{major}}.{{minor}}
+          type=semver,pattern={{major}}
+    
+    - name: Build and push Docker image (misp-sync)
+      uses: docker/build-push-action@v5
+      with:
+        context: .
+        file: ./deployments/docker/Dockerfile.misp-sync
+        platforms: linux/amd64,linux/arm64
+        push: true
+        tags: ${{ steps.meta-misp.outputs.tags }}
+        labels: ${{ steps.meta-misp.outputs.labels }}
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
+        build-args: |
+          BUILDKIT_INLINE_CACHE=1
+    
+    - name: Extract metadata for Prometheus exporter
+      id: meta-exporter
+      uses: docker/metadata-action@v5
+      with:
+        images: ghcr.io/${{ github.repository }}/prometheus-exporter
+        tags: |
+          type=ref,event=tag
+          type=semver,pattern={{version}}
+          type=semver,pattern={{major}}.{{minor}}
+    
+    - name: Build and push Docker image (prometheus-exporter)
+      uses: docker/build-push-action@v5
+      with:
+        context: .
+        file: ./management/monitoring/prometheus-exporter/Dockerfile
+        platforms: linux/amd64,linux/arm64
+        push: true
+        tags: ${{ steps.meta-exporter.outputs.tags }}
+        labels: ${{ steps.meta-exporter.outputs.labels }}
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
+        build-args: |
+          BUILDKIT_INLINE_CACHE=1

@@ -13,6 +13,12 @@ The New Network Orchestration Engine (NNOE) is an open-source, distributed DDI (
 - **Security First**: Cerbos policies, MISP threat feeds, Lynis auditing, Nebula overlay networking
 - **Modular & Extensible**: Plugin-based architecture for custom service integrations
 - **Multi-Platform**: Deploy on VMs, Docker, or Kubernetes
+- **IPv6 Native**: Full IPv6 support for DNS zones and DHCP leases
+- **Role-Based DNS Policies**: IP/subnet to role mappings for context-aware DNS filtering
+- **Metrics & Monitoring**: Prometheus metrics, Grafana dashboards, and comprehensive health checks
+- **High Availability**: Kea HA pairs with VIP failover and etcd-based state coordination
+- **DB-Only Nodes**: Dedicated etcd replication nodes for improved quorum resilience
+- **Multi-Source Threat Intelligence**: Support for multiple MISP instances with tag filtering and deduplication
 
 ## Quick Start
 
@@ -44,8 +50,25 @@ cargo build --release
 
 ```bash
 cd deployments/docker
+
+# Create .env file with your configuration (see .env.example)
+cp .env.example .env
+
+# Start services
 docker-compose -f docker-compose.dev.yml up -d
+
+# Check service status
+docker-compose ps
+
+# View logs
+docker-compose logs -f agent
 ```
+
+Key environment variables (see `deployments/docker/README.md` for full list):
+- `ETCD_ENDPOINTS`: etcd cluster endpoints (default: `http://etcd:2379`)
+- `NODE_NAME`: Unique agent node name
+- `NODE_ROLE`: Agent role (`agent` or `db-only`)
+- `LOG_LEVEL`: Logging level (`debug`, `info`, `warn`, `error`)
 
 ## Architecture
 
@@ -71,13 +94,20 @@ See [docs/architecture.md](docs/architecture.md) for detailed architecture docum
 
 ## Project Status
 
+**Overall Progress: ~85-90% Complete**
+
 This project is under active development. Current status:
-- ✅ Phase 1: Foundation & Core Agent (In Progress)
-- ⏳ Phase 2: Service Integrations
-- ⏳ Phase 3: Management Components
-- ⏳ Phase 4: Testing Infrastructure
-- ⏳ Phase 5: Deployment Configurations
-- ⏳ Phase 6: Documentation
+- ✅ Stage 1: Critical Security and Reliability Fixes (100%) - TLS support, HA coordination, Kea hooks
+- ✅ Stage 2: Complete Service Implementations (100%) - All service plugins implemented
+- ⚠️ Stage 3: Testing Infrastructure (~60%) - Integration tests in progress
+- ✅ Stage 4: Documentation Updates (100%) - Documentation comprehensive and current
+- ✅ Stage 5: Integration Components (100%) - phpIPAM, MISP sync, Kea hooks complete
+- ✅ Stage 6: Management Components (100%) - etcd orchestrator, Nebula CA, monitoring
+- ✅ Stage 7: Deployment Configurations (100%) - Docker, Kubernetes, Ansible, Manual
+- ✅ Stage 8: CI/CD and Quality Assurance (66%) - Pipelines complete, dependency updates pending
+- ⏳ Stage 9: Final Integration and Validation - E2E testing and security audit pending
+
+See [docs/completion-status.md](docs/completion-status.md) for detailed completion status.
 
 ## License
 

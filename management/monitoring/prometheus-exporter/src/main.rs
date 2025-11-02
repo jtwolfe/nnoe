@@ -27,7 +27,22 @@ async fn main() -> anyhow::Result<()> {
     let listener = TcpListener::bind(addr).await?;
     info!("Prometheus exporter listening on {}", addr);
 
-    let metrics_collector = Arc::new(MetricsCollector::new()?);
+    let mut metrics_collector = MetricsCollector::new()?;
+
+    // Configure etcd connection if environment variables are set
+    if let Ok(endpoints_str) = std::env::var("ETCD_ENDPOINTS") {
+        let endpoints: Vec<String> = endpoints_str
+            .split(',')
+            .map(|s| s.trim().to_string())
+            .collect();
+        let prefix = std::env::var("ETCD_PREFIX").unwrap_or_else(|_| "/nnoe".to_string());
+        metrics_collector.set_etcd_config(endpoints, prefix);
+        info!("Configured etcd metrics collection");
+    } else {
+        info!("No etcd configuration found - some metrics will be unavailable");
+    }
+
+    let metrics_collector = Arc::new(metrics_collector);
 
     // Start metrics collection task
     let collector_clone = Arc::clone(&metrics_collector);

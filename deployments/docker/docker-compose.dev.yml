@@ -34,9 +34,11 @@ services:
       etcd:
         condition: service_healthy
     environment:
-      - NODE_NAME=dev-agent-1
+      - NODE_NAME=${NODE_NAME:-dev-agent-1}
       - ETCD_ENDPOINTS=http://etcd:2379
-      - ETCD_PREFIX=/nnoe
+      - ETCD_PREFIX=${ETCD_PREFIX:-/nnoe}
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+      - RUST_LOG=${RUST_LOG:-nnoe_agent=info}
     volumes:
       - agent-config:/etc/nnoe
       - agent-cache:/var/lib/nnoe/cache
@@ -45,6 +47,12 @@ services:
       - /tmp/test-zones:/var/lib/knot/zones:rw
     command: ["run", "-c", "/etc/nnoe/agent.toml", "--debug"]
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health", "||", "exit", "1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
 
   misp-sync:
     build:
@@ -52,14 +60,26 @@ services:
       dockerfile: deployments/docker/Dockerfile.misp-sync
     container_name: nnoe-misp-sync-dev
     depends_on:
-      - etcd
+      etcd:
+        condition: service_healthy
     environment:
-      - MISP_URL=http://localhost
-      - MISP_API_KEY=
+      - MISP_URL=${MISP_URL:-http://localhost}
+      - MISP_API_KEY=${MISP_API_KEY:-}
+      - MISP_URL_2=${MISP_URL_2:-}
+      - MISP_API_KEY_2=${MISP_API_KEY_2:-}
+      - MISP_FILTER_TAGS=${MISP_FILTER_TAGS:-}
+      - MISP_DEDUP=${MISP_DEDUP:-true}
       - ETCD_ENDPOINTS=http://etcd:2379
-      - ETCD_PREFIX=/nnoe
-      - SYNC_INTERVAL_SECS=3600
+      - ETCD_PREFIX=${ETCD_PREFIX:-/nnoe}
+      - SYNC_INTERVAL_SECS=${SYNC_INTERVAL_SECS:-3600}
+      - RUST_LOG=${RUST_LOG:-misp_sync=info}
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "pgrep", "-f", "misp-sync"]
+      interval: 60s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
 
   # Optional: phpIPAM with NNOE plugin
   phpipam:
@@ -68,15 +88,28 @@ services:
       dockerfile: deployments/docker/Dockerfile.phpipam
     container_name: nnoe-phpipam-dev
     depends_on:
-      - etcd
+      etcd:
+        condition: service_healthy
     environment:
       - NNOE_ETCD_ENDPOINTS=http://etcd:2379
-      - NNOE_ETCD_PREFIX=/nnoe
+      - NNOE_ETCD_PREFIX=${ETCD_PREFIX:-/nnoe}
+      - NNOE_ENABLE_DNS_MANAGEMENT=${NNOE_ENABLE_DNS_MANAGEMENT:-true}
+      - NNOE_ENABLE_DHCP_MANAGEMENT=${NNOE_ENABLE_DHCP_MANAGEMENT:-true}
+      - NNOE_ENABLE_THREAT_VIEWER=${NNOE_ENABLE_THREAT_VIEWER:-true}
+      - NNOE_GRAFANA_URL=${NNOE_GRAFANA_URL:-}
+      - NNOE_GRAFANA_DASHBOARD=${NNOE_GRAFANA_DASHBOARD:-}
     ports:
-      - "8080:80"
+      - "${PHPIPAM_PORT:-8080}:80"
     volumes:
       - phpipam-data:/var/www/html/data
+      - phpipam-config:/var/www/html/plugins/nnoe/etc
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost/index.php", "||", "exit", "1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
 
 volumes:
   etcd-data:

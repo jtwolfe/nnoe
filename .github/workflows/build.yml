@@ -183,4 +183,18 @@ jobs:
           target/${{ matrix.target }}/release/nnoe-agent
           target/${{ matrix.target }}/release/misp-sync
           target/${{ matrix.target }}/release/nnoe-prometheus-exporter
-        retention-days: 7
+        retention-days: 30
+        compression-level: 6
+    
+    - name: Verify binaries
+      timeout-minutes: 5
+      run: |
+        echo "Verifying binaries for ${{ matrix.target }}..."
+        if [ -f "target/${{ matrix.target }}/release/nnoe-agent" ]; then
+          file "target/${{ matrix.target }}/release/nnoe-agent"
+          ls -lh "target/${{ matrix.target }}/release/"*.exe 2>/dev/null || ls -lh "target/${{ matrix.target }}/release/nnoe-*" || true
+          echo "Binary verification complete"
+        else
+          echo "::error::Binaries not found"
+          exit 1
+        fi

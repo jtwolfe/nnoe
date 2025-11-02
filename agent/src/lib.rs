@@ -3,6 +3,7 @@
 pub mod config;
 pub mod core;
 pub mod etcd;
+pub mod metrics;
 pub mod nebula;
 pub mod plugin;
 pub mod services;

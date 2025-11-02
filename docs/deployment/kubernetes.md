@@ -22,9 +22,28 @@ kubectl get pods -n nnoe
 
 ## Components
 
+### Namespace
+
+Create NNOE namespace:
+
+```bash
+kubectl apply -f deployments/kubernetes/management/namespace.yaml
+# Or: kubectl create namespace nnoe
+```
+
 ### etcd StatefulSet
 
 3-node etcd cluster for high availability.
+
+**StatefulSet** (`deployments/kubernetes/management/etcd-statefulset.yaml`):
+- 3 replicas for quorum
+- PersistentVolumeClaims for data persistence
+- Health checks via `etcdctl endpoint health`
+- Resource limits: 512Mi-2Gi memory, 250m-1000m CPU
+
+**Service** (`deployments/kubernetes/management/etcd-service.yaml`):
+- Headless service (ClusterIP: None) for StatefulSet
+- Exposes client port (2379) and peer port (2380)
 
 ```bash
 # Check etcd cluster
@@ -33,11 +52,14 @@ kubectl get pods -n nnoe -l app=etcd
 
 # Check etcd health
 kubectl exec -n nnoe etcd-0 -- etcdctl endpoint health
+
+# Check etcd service
+kubectl get service -n nnoe etcd
 ```
 
 ### Agent DaemonSet
 
-Deploys agent to all cluster nodes.
+Deploys agent to all cluster nodes with hostNetwork for DNS/DHCP access.
 
 ```bash
 # Check agent deployment
@@ -46,6 +68,13 @@ kubectl get daemonset -n nnoe nnoe-agent
 # View agent pods
 kubectl get pods -n nnoe -l app=nnoe-agent
 ```
+
+**Key Features:**
+- Uses `hostNetwork: true` for DNS (UDP 53) and DHCP (UDP 67/68) access
+- Health probes: HTTP GET on port 8080 (`/health`)
+- Metrics port: 9090 (exposed via Service)
+- Resource limits: Requests (256Mi memory, 200m CPU), Limits (1Gi memory, 1000m CPU)
+- Capabilities: NET_ADMIN, SYS_ADMIN (for network operations)
 
 ## Configuration
 
@@ -65,19 +94,40 @@ kubectl apply -f deployments/kubernetes/agent/configmap.yaml
 
 Configuration is mounted at `/etc/nnoe/agent.toml` in agent pods.
 
+**ConfigMap includes:**
+- Node configuration (name, role: `agent` or `db-only`)
+- etcd configuration (endpoints, prefix, optional TLS)
+- Service configurations (DNS, DHCP, dnsdist, Cerbos, Lynis)
+- Cache configuration
+- Nebula configuration (if enabled)
+
+**To set DB-only role:**
+```yaml
+[node]
+role = "db-only"  # Skips service registration, maintains only etcd replication
+```
+
 ### Environment Variables
 
-Override via DaemonSet:
+Agent environment variables (in DaemonSet):
 
 ```yaml
 env:
-- name: ETCD_ENDPOINTS
-  value: "http://etcd.nnoe.svc.cluster.local:2379"
 - name: NODE_NAME
   valueFrom:
     fieldRef:
-      fieldPath: spec.nodeName
+      fieldPath: spec.nodeName  # Uses Kubernetes node name
+- name: ETCD_ENDPOINTS
+  value: "http://etcd.nnoe.svc.cluster.local:2379"  # etcd service DNS name
+- name: ETCD_PREFIX
+  value: "/nnoe"
 ```
+
+**MISP Sync Deployment** (`deployments/kubernetes/misp-sync/deployment.yaml`):
+- Environment variables from Secret: `MISP_URL`, `MISP_API_KEY`
+- Optional: `MISP_URL_2`, `MISP_API_KEY_2` (second instance)
+- `MISP_FILTER_TAGS`, `MISP_DEDUP` (tag filtering and deduplication)
+- `ETCD_ENDPOINTS`, `ETCD_PREFIX`, `SYNC_INTERVAL_SECS`
 
 ## Scaling
 
@@ -94,8 +144,16 @@ kubectl scale statefulset etcd -n nnoe --replicas=5
 
 Agent automatically scales with cluster nodes via DaemonSet.
 
-To limit agent to specific nodes:
+**DaemonSet Features:**
+- Deploys one pod per node
+- Uses `hostNetwork: true` for DNS/DHCP access
+- Health probes on port 8080
+- Metrics exposed on port 9090
+- Resource limits configured
 
+**To limit agent to specific nodes:**
+
+Add to DaemonSet spec:
 ```yaml
 nodeSelector:
   nnoe-agent: "enabled"
@@ -104,6 +162,9 @@ tolerations:
   operator: Exists
   effect: NoSchedule
 ```
+
+**DB-Only Nodes:**
+Set `node.role = "db-only"` in ConfigMap to create DB-only agent nodes that only maintain etcd replication without DNS/DHCP services.
 
 ## Storage
 
@@ -128,18 +189,48 @@ kubectl get pv | grep nnoe
 
 ### Service Discovery
 
-etcd is accessible via:
+**etcd Service** (`deployments/kubernetes/management/etcd-service.yaml`):
+- Headless service (ClusterIP: None) for StatefulSet
+- Client port: 2379
+- Peer port: 2380
+- Accessible via: `http://etcd.nnoe.svc.cluster.local:2379`
 
-```
-http://etcd.nnoe.svc.cluster.local:2379
-```
+**Agent Service** (`deployments/kubernetes/agent/service.yaml`):
+- ClusterIP service
+- Metrics port: 9090
+- Health port: 8080
+- Accessible via: `http://nnoe-agent.nnoe.svc.cluster.local:9090` (metrics)
 
 ### DNS
 
 Services can resolve via Kubernetes DNS:
 
-- `etcd.nnoe.svc.cluster.local`
-- `etcd-0.etcd.nnoe.svc.cluster.local`
+- `etcd.nnoe.svc.cluster.local` - etcd service
+- `etcd-0.etcd.nnoe.svc.cluster.local` - etcd StatefulSet pod
+- `nnoe-agent.nnoe.svc.cluster.local` - agent service
+
+### MISP Sync Deployment
+
+MISP sync service is deployed as a Deployment:
+
+```bash
+# Check MISP sync deployment
+kubectl get deployment -n nnoe nnoe-misp-sync
+
+# View pods
+kubectl get pods -n nnoe -l app=nnoe-misp-sync
+
+# Check logs
+kubectl logs -n nnoe -l app=nnoe-misp-sync -f
+```
+
+**Secret Configuration** (`deployments/kubernetes/misp-sync/secret.yaml.example`):
+- Create secret from example:
+  ```bash
+  kubectl create secret generic misp-credentials -n nnoe \
+    --from-literal=misp_url=https://misp.example.com \
+    --from-literal=misp_api_key=your-api-key
+  ```
 
 ## Updates
 
@@ -176,23 +267,90 @@ kubectl logs -n nnoe nnoe-agent-<node-name> -f
 
 ### Health Checks
 
+Agent pods include liveness and readiness probes:
+
+```yaml
+livenessProbe:
+  httpGet:
+    path: /health
+    port: 8080
+  initialDelaySeconds: 60
+  periodSeconds: 30
+  timeoutSeconds: 10
+  failureThreshold: 3
+
+readinessProbe:
+  httpGet:
+    path: /health
+    port: 8080
+  initialDelaySeconds: 20
+  periodSeconds: 10
+  timeoutSeconds: 5
+  failureThreshold: 3
+```
+
+**Check Pod Health:**
 ```bash
-# Check pod health
+# View all pods and status
 kubectl get pods -n nnoe
 
-# Describe pod
+# Describe specific pod
 kubectl describe pod -n nnoe nnoe-agent-<node-name>
+
+# Check health endpoint directly
+kubectl port-forward -n nnoe nnoe-agent-<node-name> 8080:8080
+curl http://localhost:8080/health
 ```
 
 ### Metrics
 
-Expose Prometheus metrics:
+Agent exposes metrics via Service and ServiceMonitor.
 
+**Service** (`deployments/kubernetes/agent/service.yaml`):
 ```yaml
-ports:
-- name: metrics
-  containerPort: 9090
+apiVersion: v1
+kind: Service
+metadata:
+  name: nnoe-agent
+  namespace: nnoe
+spec:
+  ports:
+  - name: metrics
+    port: 9090
+    targetPort: 9090
+  - name: health
+    port: 8080
+    targetPort: 8080
+  type: ClusterIP
 ```
+
+**ServiceMonitor** (`deployments/kubernetes/agent/servicemonitor.yaml`):
+```yaml
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: nnoe-agent
+  namespace: nnoe
+spec:
+  selector:
+    matchLabels:
+      app: nnoe-agent
+  endpoints:
+  - port: metrics
+    interval: 30s
+    path: /metrics
+```
+
+**Metrics Available:**
+- `nnoe_agent_uptime_seconds`
+- `nnoe_agent_etcd_connected`
+- `nnoe_agent_config_updates_total`
+- `nnoe_agent_service_reloads_total`
+- `nnoe_dns_queries_total`
+- `nnoe_blocked_queries_total`
+- `nnoe_dhcp_leases_active`
+- `nnoe_agent_ha_state`
+- See `docs/operations/monitoring.md` for complete list
 
 ## Troubleshooting
 
@@ -237,16 +395,38 @@ kubectl get storageclass
 
 ### Resource Limits
 
-Set appropriate limits:
+Agent resource configuration (in DaemonSet):
 
 ```yaml
 resources:
   requests:
-    memory: "128Mi"
-    cpu: "100m"
+    memory: "256Mi"
+    cpu: "200m"
   limits:
+    memory: "1Gi"
+    cpu: "1000m"
+```
+
+**etcd StatefulSet resources:**
+```yaml
+resources:
+  requests:
     memory: "512Mi"
-    cpu: "500m"
+    cpu: "250m"
+  limits:
+    memory: "2Gi"
+    cpu: "1000m"
+```
+
+**MISP Sync Deployment resources:**
+```yaml
+resources:
+  requests:
+    memory: "64Mi"
+    cpu: "50m"
+  limits:
+    memory: "256Mi"
+    cpu: "200m"
 ```
 
 ### Node Affinity
@@ -297,29 +477,28 @@ rules:
 
 ### Network Policies
 
-Restrict network access:
+Network policies are defined in `deployments/kubernetes/networkpolicy.yaml`.
 
-```yaml
-apiVersion: networking.k8s.io/v1
-kind: NetworkPolicy
-metadata:
-  name: nnoe-agent-policy
-  namespace: nnoe
-spec:
-  podSelector:
-    matchLabels:
-      app: nnoe-agent
-  policyTypes:
-  - Ingress
-  - Egress
-  egress:
-  - to:
-    - podSelector:
-        matchLabels:
-          app: etcd
-    ports:
-    - protocol: TCP
-      port: 2379
+**Agent Network Policy:**
+- **Ingress:**
+  - Prometheus scraping from monitoring namespace (port 9090)
+  - Health checks from any pod in namespace (port 8080)
+- **Egress:**
+  - Connection to etcd pods (port 2379)
+  - DNS resolution (UDP/TCP 53)
+  - HTTP/HTTPS for external services (MISP, Cerbos) (ports 80, 443)
+  - All traffic within nnoe namespace
+
+**etcd Network Policy:**
+- **Ingress:**
+  - Agent pods connecting to etcd (port 2379)
+  - etcd peer communication (port 2380)
+- **Egress:**
+  - All outbound traffic (required for cluster formation)
+
+Apply network policies:
+```bash
+kubectl apply -f deployments/kubernetes/networkpolicy.yaml
 ```
 
 ## Backup and Recovery

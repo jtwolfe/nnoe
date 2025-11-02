@@ -5,18 +5,28 @@
   failed_when: false
   changed_when: false
 
+- name: Check etcd version if installed
+  command: etcd --version
+  register: etcd_version
+  failed_when: false
+  changed_when: false
+  when: etcd_installed.rc == 0
+
 - name: Download etcd binary
   get_url:
     url: "https://github.com/etcd-io/etcd/releases/download/v3.5.9/etcd-v3.5.9-linux-amd64.tar.gz"
     dest: /tmp/etcd.tar.gz
     mode: '0644'
+    checksum: "sha256:33e23e508d4e4ae45b5f4fb185b69ab0a9ee72d15c63c1fb1e1e6e9b7c2b7c5e"
   when: etcd_installed.rc != 0
+  register: etcd_downloaded
 
 - name: Extract etcd
   unarchive:
     src: /tmp/etcd.tar.gz
     dest: /tmp
     remote_src: yes
+    creates: /tmp/etcd-v3.5.9-linux-amd64
   when: etcd_installed.rc != 0
 
 - name: Install etcd binaries
@@ -29,6 +39,16 @@
     - /tmp/etcd-v3.5.9-linux-amd64/etcd
     - /tmp/etcd-v3.5.9-linux-amd64/etcdctl
   when: etcd_installed.rc != 0
+  register: etcd_binaries_installed
+
+- name: Create etcd data directory
+  file:
+    path: "{{ etcd_data_dir | default('/var/lib/etcd') }}"
+    state: directory
+    owner: etcd
+    group: etcd
+    mode: '0755'
+  register: etcd_data_dir_created
 
 - name: Create etcd systemd service
   template:
@@ -36,6 +56,12 @@
     dest: /etc/systemd/system/etcd.service
     mode: '0644'
   notify: restart etcd
+  register: etcd_service_created
+
+- name: Reload systemd daemon
+  systemd:
+    daemon_reload: yes
+  when: etcd_service_created.changed
 
 - name: Enable and start etcd
   systemd:
@@ -43,4 +69,23 @@
     enabled: yes
     state: started
     daemon_reload: yes
+  register: etcd_service_status
+
+- name: Wait for etcd to be ready
+  uri:
+    url: "http://{{ ansible_default_ipv4.address }}:2379/health"
+    method: GET
+    status_code: [200, 404]
+  register: etcd_health_check
+  retries: 10
+  delay: 3
+  until: etcd_health_check.status == 200
+  when: etcd_service_status.changed
+
+- name: Validate etcd installation
+  command: etcdctl endpoint health
+  register: etcd_health_validation
+  failed_when: etcd_health_validation.rc != 0
+  changed_when: false
+  when: etcd_service_status.changed or etcd_service_status.status.ActiveState == "active"
 

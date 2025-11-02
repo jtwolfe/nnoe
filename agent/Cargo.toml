@@ -45,6 +45,7 @@ tonic-build.workspace = true
 # Test dependencies
 mockall = "0.12"
 tokio-test = "0.4"
+testcontainers.workspace = true
 
 [[test]]
 name = "cache_test"

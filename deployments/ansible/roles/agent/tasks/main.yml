@@ -1,22 +1,49 @@
 ---
+- name: Check if nnoe-agent binary exists
+  stat:
+    path: /usr/local/bin/nnoe-agent
+  register: agent_binary_exists
+  changed_when: false
+
+- name: Check agent binary version
+  command: /usr/local/bin/nnoe-agent --version
+  register: agent_version
+  failed_when: false
+  changed_when: false
+  when: agent_binary_exists.stat.exists
+
 - name: Check if Rust is installed
   command: which cargo
   register: rust_installed
   failed_when: false
   changed_when: false
+  when: nnoe_build | default(false)
 
 - name: Install Rust toolchain
   shell: curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
-  when: rust_installed.rc != 0
+  environment:
+    CARGO_HOME: "{{ ansible_env.HOME }}/.cargo"
+    RUSTUP_HOME: "{{ ansible_env.HOME }}/.rustup"
+  when: rust_installed.rc != 0 and nnoe_build | default(false)
+  register: rust_install
 
 - name: Build NNOE agent
   shell: |
-    source $HOME/.cargo/env
+    source {{ ansible_env.HOME }}/.cargo/env
     cd /tmp
-    git clone https://github.com/nnoe/nnoe.git || true
+    if [ ! -d nnoe ]; then
+      git clone {{ nnoe_repo_url | default('https://github.com/nnoe/nnoe.git') }} nnoe
+    else
+      cd nnoe && git pull
+    fi
     cd nnoe
     cargo build --release --package nnoe-agent
-  when: nnoe_build | default(true)
+  environment:
+    CARGO_HOME: "{{ ansible_env.HOME }}/.cargo"
+    RUSTUP_HOME: "{{ ansible_env.HOME }}/.rustup"
+  when: nnoe_build | default(false)
+  register: agent_build
+  changed_when: agent_build.rc == 0
 
 - name: Install NNOE agent binary
   copy:
@@ -24,21 +51,63 @@
     dest: /usr/local/bin/nnoe-agent
     mode: '0755'
     remote_src: yes
-  when: nnoe_build | default(true)
+  when: (nnoe_build | default(false) and agent_build.rc == 0) or not agent_binary_exists.stat.exists
+  register: agent_binary_installed
+
+- name: Verify agent binary is executable
+  stat:
+    path: /usr/local/bin/nnoe-agent
+    get_checksum: false
+  register: agent_binary_check
+  failed_when: not (agent_binary_check.stat.exists and agent_binary_check.stat.mode | int == 33261)
+  changed_when: false
+
+- name: Validate agent configuration template
+  template:
+    src: agent.toml.j2
+    dest: /tmp/agent.toml.validate
+    mode: '0644'
+  register: config_validate
+  check_mode: yes
+  failed_when: false
+  changed_when: false
+
+- name: Validate agent configuration
+  command: /usr/local/bin/nnoe-agent validate -c /tmp/agent.toml.validate
+  register: config_validation
+  failed_when: config_validation.rc != 0
+  changed_when: false
+  when: agent_binary_check.stat.exists
 
 - name: Create agent configuration
   template:
     src: agent.toml.j2
     dest: /etc/nnoe/agent.toml
     mode: '0644'
+    backup: yes
   notify: restart nnoe-agent
+  register: agent_config_created
+
+- name: Verify agent configuration file
+  stat:
+    path: /etc/nnoe/agent.toml
+  register: config_file_stat
+  failed_when: not config_file_stat.stat.exists
+  changed_when: false
 
 - name: Create systemd service for agent
   template:
     src: nnoe-agent.service.j2
     dest: /etc/systemd/system/nnoe-agent.service
     mode: '0644'
+    backup: yes
   notify: restart nnoe-agent
+  register: service_file_created
+
+- name: Reload systemd daemon
+  systemd:
+    daemon_reload: yes
+  when: service_file_created.changed
 
 - name: Enable and start NNOE agent
   systemd:
@@ -46,4 +115,26 @@
     enabled: yes
     state: started
     daemon_reload: yes
+  register: agent_service_status
+
+- name: Wait for agent to be ready
+  wait_for:
+    port: 8080
+    host: localhost
+    delay: 5
+    timeout: 60
+  when: agent_service_status.changed or agent_service_status.status.ActiveState == "active"
+  register: agent_ready
+  failed_when: false
+  changed_when: false
+
+- name: Validate agent is running
+  command: systemctl is-active nnoe-agent
+  register: agent_active_check
+  failed_when: agent_active_check.stdout != "active"
+  changed_when: false
+
+- name: Display agent status
+  debug:
+    msg: "NNOE agent is {{ agent_active_check.stdout }}"
 

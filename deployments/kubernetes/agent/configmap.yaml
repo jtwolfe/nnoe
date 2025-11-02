@@ -3,16 +3,25 @@ kind: ConfigMap
 metadata:
   name: nnoe-agent-config
   namespace: nnoe
+  labels:
+    app: nnoe-agent
 data:
   agent.toml: |
     [node]
     name = "${NODE_NAME}"
-    role = "active"
+    role = "${NODE_ROLE:-agent}"
 
     [etcd]
     endpoints = ["http://etcd.nnoe.svc.cluster.local:2379"]
     prefix = "/nnoe"
     timeout_secs = 5
+    
+    # TLS Configuration (uncomment if using TLS)
+    # [etcd.tls]
+    # ca_cert = "/etc/nnoe/certs/etcd-ca.crt"
+    # cert = "/etc/nnoe/certs/etcd-client.crt"
+    # key = "/etc/nnoe/certs/etcd-client.key"
+    # verify = true
 
     [cache]
     path = "/var/lib/nnoe/cache"
@@ -21,6 +30,10 @@ data:
 
     [nebula]
     enabled = false
+    # config_path = "/etc/nebula/config.yml"
+    # ca_cert = "/etc/nebula/ca.crt"
+    # cert = "/etc/nebula/cert.pem"
+    # key = "/etc/nebula/key.pem"
 
     [services.dns]
     enabled = true
@@ -32,12 +45,27 @@ data:
     enabled = true
     engine = "kea"
     config_path = "/etc/kea/kea-dhcp4.conf"
+    control_port = 8000
+    interface = "eth0"
     ha_pair_id = null
 
     [services.dnsdist]
     enabled = true
     config_path = "/etc/dnsdist/dnsdist.conf"
     lua_script_path = "/etc/dnsdist/lua/rules.lua"
+    control_port = 5199
+    listen_address = "0.0.0.0"
+    listen_port = 53
+
+    [services.cerbos]
+    enabled = false
+    # endpoint = "http://cerbos:3593"
+    # timeout_secs = 5
+
+    [services.lynis]
+    enabled = false
+    # report_path = "/tmp/lynis.report"
+    # audit_interval_secs = 86400
 
     [logging]
     level = "info"

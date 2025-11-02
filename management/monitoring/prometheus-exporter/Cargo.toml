@@ -22,6 +22,7 @@ prometheus = "0.13"
 anyhow.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
+etcd-client.workspace = true
 # Note: nnoe-agent dependency removed - exporter doesn't currently use agent code
 # If metrics collection from agent is needed in future, this dependency can be added back
 

@@ -1,0 +1,90 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: nnoe-agent-network-policy
+  namespace: nnoe
+spec:
+  podSelector:
+    matchLabels:
+      app: nnoe-agent
+  policyTypes:
+  - Ingress
+  - Egress
+  ingress:
+  # Allow Prometheus to scrape metrics
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          name: monitoring
+    ports:
+    - protocol: TCP
+      port: 9090
+  # Allow health checks
+  - from:
+    - namespaceSelector: {}
+    ports:
+    - protocol: TCP
+      port: 8080
+  egress:
+  # Allow connection to etcd
+  - to:
+    - podSelector:
+        matchLabels:
+          app: etcd
+    ports:
+    - protocol: TCP
+      port: 2379
+  # Allow DNS resolution
+  - to:
+    - namespaceSelector: {}
+    ports:
+    - protocol: UDP
+      port: 53
+  # Allow HTTP/HTTPS for external services (MISP, Cerbos, etc.)
+  - to:
+    - namespaceSelector: {}
+    ports:
+    - protocol: TCP
+      port: 80
+    - protocol: TCP
+      port: 443
+  # Allow all traffic to same namespace
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          name: nnoe
+
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: etcd-network-policy
+  namespace: nnoe
+spec:
+  podSelector:
+    matchLabels:
+      app: etcd
+  policyTypes:
+  - Ingress
+  - Egress
+  ingress:
+  # Allow agents to connect
+  - from:
+    - podSelector:
+        matchLabels:
+          app: nnoe-agent
+    ports:
+    - protocol: TCP
+      port: 2379
+  # Allow etcd peer communication
+  - from:
+    - podSelector:
+        matchLabels:
+          app: etcd
+    ports:
+    - protocol: TCP
+      port: 2380
+  egress:
+  # Allow all outbound traffic for etcd (needed for cluster formation)
+  - {}
+

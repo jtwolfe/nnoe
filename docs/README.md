@@ -4,7 +4,7 @@ Comprehensive documentation for the New Network Orchestration Engine (NNOE).
 
 ## Quick Links
 
-- [Architecture Overview](architecure.md) - System design and component breakdown
+- [Architecture Overview](architecture.md) - System design and component breakdown
 - [Project Intention](intention.md) - Project goals and vision
 - [Getting Started](development/getting-started.md) - Development setup guide
 
@@ -34,12 +34,13 @@ Comprehensive documentation for the New Network Orchestration Engine (NNOE).
 - [Troubleshooting](operations/troubleshooting.md) - Common issues and solutions
 - [Monitoring](operations/monitoring.md) - Monitoring and observability
 - [Security](operations/security.md) - Security best practices
+- [Backup and Restore](operations/backup-restore.md) - Backup and restore procedures
 
 ### Examples
 
-- [Zone Management](examples/zone-management/README.md) - DNS zone management examples
-- [DHCP Scopes](examples/dhcp-scopes/README.md) - DHCP scope management examples
-- [Threat Integration](examples/threat-integration/README.md) - Threat intelligence integration
+- [Zone Management](examples/zone-management/README.md) - DNS zone management examples (includes DNSSEC)
+- [DHCP Scopes](examples/dhcp-scopes/README.md) - DHCP scope management examples (includes IPv6 and HA pairs)
+- [Threat Integration](examples/threat-integration/README.md) - Threat intelligence integration (includes multiple MISP instances and tag filtering)
 
 ## Documentation by Use Case
 
@@ -61,7 +62,7 @@ Comprehensive documentation for the New Network Orchestration Engine (NNOE).
 - Implement [Security Best Practices](operations/security.md)
 
 **Understand NNOE:**
-- Read [Architecture Overview](architecure.md)
+- Read [Architecture Overview](architecture.md)
 - Review [Project Intention](intention.md)
 - Explore [API Documentation](api/)
 
@@ -88,6 +89,8 @@ Comprehensive documentation for the New Network Orchestration Engine (NNOE).
 - ✅ Development guides
 - ✅ Operational documentation
 - ✅ Examples
+
+See [Completion Status](completion-status.md) for detailed project implementation status and remaining work.
 
 ## Additional Resources
 

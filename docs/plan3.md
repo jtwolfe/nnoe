@@ -136,7 +136,7 @@
 
 ### 4.1 Update Architecture Documentation
 
-**Files**: `docs/architecure.md`
+**Files**: `docs/architecture.md`
 
 **Current State**: Code examples don't match actual implementation (orchestrator.rs uses different watch pattern).
 

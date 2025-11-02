@@ -3,6 +3,9 @@
     "title": "NNOE Dashboard",
     "tags": ["nnoe", "dns", "dhcp", "ddi"],
     "timezone": "browser",
+    "refresh": "10s",
+    "schemaVersion": 27,
+    "version": 1,
     "panels": [
       {
         "id": 1,
@@ -11,27 +14,60 @@
         "targets": [
           {
             "expr": "nnoe_agent_uptime_seconds",
-            "legendFormat": "Uptime"
+            "legendFormat": "{{instance}}"
           }
         ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "s",
+            "decimals": 0
+          }
+        },
         "gridPos": {"h": 4, "w": 6, "x": 0, "y": 0}
       },
       {
         "id": 2,
-        "title": "etcd Connections",
+        "title": "etcd Connection Status",
         "type": "stat",
         "targets": [
           {
-            "expr": "nnoe_agent_etcd_connections",
-            "legendFormat": "Connections"
+            "expr": "nnoe_agent_etcd_connected",
+            "legendFormat": "{{instance}}"
           }
         ],
+        "fieldConfig": {
+          "defaults": {
+            "mappings": [
+              {"type": "value", "options": {"0": {"text": "Disconnected", "color": "red"}, "1": {"text": "Connected", "color": "green"}}}
+            ],
+            "thresholds": {"mode": "absolute", "steps": [{"value": 0, "color": "red"}, {"value": 1, "color": "green"}]}
+          }
+        },
         "gridPos": {"h": 4, "w": 6, "x": 6, "y": 0}
       },
       {
         "id": 3,
+        "title": "HA State",
+        "type": "stat",
+        "targets": [
+          {
+            "expr": "nnoe_agent_ha_state",
+            "legendFormat": "{{instance}}"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "mappings": [
+              {"type": "value", "options": {"0": {"text": "Unknown"}, "1": {"text": "Primary", "color": "green"}, "2": {"text": "Standby", "color": "yellow"}}}
+            ]
+          }
+        },
+        "gridPos": {"h": 4, "w": 6, "x": 12, "y": 0}
+      },
+      {
+        "id": 4,
         "title": "Cache Size",
-        "type": "graph",
+        "type": "timeseries",
         "targets": [
           {
             "expr": "nnoe_agent_cache_size_bytes",
@@ -42,72 +78,126 @@
             "legendFormat": "Cache Entries"
           }
         ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "bytes"
+          }
+        },
         "gridPos": {"h": 8, "w": 12, "x": 0, "y": 4}
       },
       {
-        "id": 4,
+        "id": 5,
         "title": "DNS Query Rate",
-        "type": "graph",
+        "type": "timeseries",
         "targets": [
           {
-            "expr": "rate(nnoe_dns_query_rate[5m])",
+            "expr": "nnoe_dns_query_rate",
             "legendFormat": "Queries/sec"
+          },
+          {
+            "expr": "rate(nnoe_dns_queries_total[5m])",
+            "legendFormat": "Rate (5m)"
           }
         ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "qps"
+          }
+        },
         "gridPos": {"h": 8, "w": 12, "x": 12, "y": 4}
       },
       {
-        "id": 5,
+        "id": 6,
         "title": "DHCP Leases",
-        "type": "graph",
+        "type": "timeseries",
         "targets": [
           {
-            "expr": "nnoe_dhcp_lease_count",
+            "expr": "nnoe_dhcp_leases_active",
             "legendFormat": "Active Leases"
+          },
+          {
+            "expr": "rate(nnoe_dhcp_leases_total[5m])",
+            "legendFormat": "Allocation Rate (5m)"
           }
         ],
         "gridPos": {"h": 8, "w": 12, "x": 0, "y": 12}
       },
       {
-        "id": 6,
-        "title": "Blocked Queries",
-        "type": "graph",
+        "id": 7,
+        "title": "Blocked DNS Queries",
+        "type": "timeseries",
         "targets": [
           {
             "expr": "rate(nnoe_blocked_queries_total[5m])",
             "legendFormat": "Blocked/sec"
+          },
+          {
+            "expr": "nnoe_blocked_queries_total",
+            "legendFormat": "Total Blocked"
           }
         ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "qps"
+          }
+        },
         "gridPos": {"h": 8, "w": 12, "x": 12, "y": 12}
       },
       {
-        "id": 7,
+        "id": 8,
         "title": "Config Updates",
-        "type": "graph",
+        "type": "timeseries",
         "targets": [
           {
             "expr": "rate(nnoe_agent_config_updates_total[5m])",
             "legendFormat": "Updates/sec"
+          },
+          {
+            "expr": "nnoe_agent_config_updates_total",
+            "legendFormat": "Total Updates"
           }
         ],
         "gridPos": {"h": 8, "w": 12, "x": 0, "y": 20}
       },
       {
-        "id": 8,
+        "id": 9,
         "title": "Service Reloads",
-        "type": "graph",
+        "type": "timeseries",
         "targets": [
           {
             "expr": "rate(nnoe_agent_service_reloads_total[5m])",
             "legendFormat": "Reloads/sec"
+          },
+          {
+            "expr": "nnoe_agent_service_reloads_total",
+            "legendFormat": "Total Reloads"
           }
         ],
         "gridPos": {"h": 8, "w": 12, "x": 12, "y": 20}
       }
     ],
-    "refresh": "10s",
-    "schemaVersion": 27,
-    "version": 1
+    "annotations": {
+      "list": [
+        {
+          "name": "Config Changes",
+          "datasource": "Prometheus",
+          "enable": true,
+          "expr": "changes(nnoe_agent_config_updates_total[1m]) > 0"
+        }
+      ]
+    },
+    "templating": {
+      "list": [
+        {
+          "name": "instance",
+          "type": "query",
+          "datasource": "Prometheus",
+          "query": "label_values(nnoe_agent_uptime_seconds, instance)",
+          "current": {"text": "All", "value": "$__all"},
+          "includeAll": true,
+          "multi": true
+        }
+      ]
+    }
   }
 }
-

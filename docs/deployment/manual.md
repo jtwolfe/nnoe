@@ -84,7 +84,7 @@ Key settings:
 ```toml
 [node]
 name = "your-node-name"
-role = "active"  # or "management" or "db-only"
+role = "agent"  # or "db-only" for DB-only nodes
 
 [etcd]
 endpoints = ["http://127.0.0.1:2379"]  # Your etcd endpoints
@@ -127,10 +127,32 @@ Use the provided install script:
 
 ```bash
 cd deployments/manual
-sudo ./install.sh
+chmod +x install.sh
+sudo ./install.sh [install-prefix] [config-dir] [data-dir]
 ```
 
-This automates steps 2-10 above.
+**Parameters (all optional):**
+- `install-prefix`: Installation prefix for binary (default: `/usr/local`)
+- `config-dir`: Configuration directory (default: `/etc/nnoe`)
+- `data-dir`: Data directory for cache and logs (default: `/var/lib/nnoe`)
+
+**What the script does:**
+1. Checks for Rust/Cargo installation
+2. Builds the agent binary from source
+3. Creates nnoe user and directories
+4. Installs binary to `/usr/local/bin/nnoe-agent`
+5. Copies example configuration to `/etc/nnoe/agent.toml`
+6. Sets up systemd service file
+7. Enables and starts the service
+
+**Example:**
+```bash
+# Default installation
+sudo ./install.sh
+
+# Custom paths
+sudo ./install.sh /opt/nnoe /etc/nnoe /var/lib/nnoe
+```
 
 ## Service Management
 
@@ -151,8 +173,151 @@ sudo journalctl -u nnoe-agent -f
 # Last 100 lines
 sudo journalctl -u nnoe-agent -n 100
 
-# Since boot
+# Logs since boot
 sudo journalctl -u nnoe-agent -b
+```
+
+## Upgrading
+
+### Manual Upgrade
+
+To upgrade the NNOE agent to a new version:
+
+1. **Stop the service:**
+   ```bash
+   sudo systemctl stop nnoe-agent
+   ```
+
+2. **Backup current binary:**
+   ```bash
+   sudo cp /usr/local/bin/nnoe-agent /usr/local/bin/nnoe-agent.backup
+   ```
+
+3. **Build new version:**
+   ```bash
+   cd /path/to/nnoe
+   git pull
+   cargo build --release --package nnoe-agent
+   ```
+
+4. **Install new binary:**
+   ```bash
+   sudo cp target/release/nnoe-agent /usr/local/bin/nnoe-agent
+   sudo chmod +x /usr/local/bin/nnoe-agent
+   ```
+
+5. **Validate configuration with new binary:**
+   ```bash
+   sudo -u nnoe nnoe-agent validate -c /etc/nnoe/agent.toml
+   ```
+
+6. **Start the service:**
+   ```bash
+   sudo systemctl start nnoe-agent
+   sudo systemctl status nnoe-agent
+   ```
+
+### Automated Upgrade
+
+Use the provided upgrade script:
+
+```bash
+cd deployments/manual
+chmod +x upgrade.sh
+sudo ./upgrade.sh [install-prefix] [config-dir] [data-dir]
+```
+
+**What the script does:**
+1. Checks if NNOE is already installed
+2. Backs up current binary and configuration to `$DATA_DIR/backup-TIMESTAMP`
+3. Checks for Rust/Cargo
+4. Stops the service
+5. Builds new agent from source
+6. Validates new binary works
+7. Validates existing configuration with new binary
+8. Installs new binary
+9. Restarts the service
+10. Verifies service is running
+
+**Rollback on failure:**
+- If new binary validation fails, script automatically rolls back to previous version
+- Backup is preserved in `$DATA_DIR/backup-TIMESTAMP`
+
+**Example:**
+```bash
+# Upgrade with default paths
+sudo ./upgrade.sh
+
+# Upgrade with custom paths
+sudo ./upgrade.sh /opt/nnoe /etc/nnoe /var/lib/nnoe
+```
+
+## Uninstallation
+
+### Manual Uninstallation
+
+To completely remove NNOE:
+
+1. **Stop and disable service:**
+   ```bash
+   sudo systemctl stop nnoe-agent
+   sudo systemctl disable nnoe-agent
+   ```
+
+2. **Remove systemd service file:**
+   ```bash
+   sudo rm /etc/systemd/system/nnoe-agent.service
+   sudo systemctl daemon-reload
+   ```
+
+3. **Remove binary:**
+   ```bash
+   sudo rm /usr/local/bin/nnoe-agent
+   ```
+
+4. **Remove configuration (optional):**
+   ```bash
+   sudo rm -rf /etc/nnoe
+   ```
+
+5. **Remove data directory (optional):**
+   ```bash
+   sudo rm -rf /var/lib/nnoe
+   ```
+
+6. **Remove nnoe user (optional):**
+   ```bash
+   sudo userdel nnoe
+   ```
+
+### Automated Uninstallation
+
+Use the provided uninstall script:
+
+```bash
+cd deployments/manual
+chmod +x uninstall.sh
+sudo ./uninstall.sh [install-prefix] [config-dir] [data-dir]
+```
+
+**What the script does:**
+1. Prompts for confirmation (requires typing "yes")
+2. Stops and disables the service
+3. Removes systemd service file and reloads daemon
+4. Removes binary from install prefix
+5. Optionally removes configuration directory (with confirmation)
+6. Optionally removes data directory (with confirmation)
+7. Optionally removes nnoe user (with confirmation)
+
+**Note:** The script preserves your data by default. You must explicitly confirm removal of config and data directories.
+
+**Example:**
+```bash
+# Uninstall with default paths
+sudo ./uninstall.sh
+
+# Uninstall with custom paths
+sudo ./uninstall.sh /opt/nnoe /etc/nnoe /var/lib/nnoe
 ```
 
 ### Check Status
@@ -169,9 +334,8 @@ Location: `/etc/nnoe/agent.toml`
 
 ### Node Roles
 
-- **active**: Runs DNS/DHCP services (Knot, Kea, dnsdist)
-- **management**: Runs phpIPAM, manages etcd cluster
-- **db-only**: Runs etcd follower, no services
+- **agent**: Runs DNS/DHCP services (Knot, Kea, dnsdist). Default role for service nodes.
+- **db-only**: Runs etcd follower only, no DNS/DHCP services. Used for etcd replication and quorum maintenance.
 
 ### etcd Connection
 

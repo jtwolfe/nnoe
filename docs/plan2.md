@@ -211,7 +211,7 @@
 
 ### 3.5 Update Architecture Documentation
 
-**Files**: `docs/architecure.md`
+**Files**: `docs/architecture.md`
 
 - Remove references to `raft-rs` (lines 16, 54) - replace with `etcd-client`
 - Update code examples to match actual implementation:

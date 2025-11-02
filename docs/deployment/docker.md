@@ -41,13 +41,47 @@ docker exec nnoe-etcd-dev etcdctl endpoint health
 
 ### Configuration
 
-Edit environment variables in `docker-compose.dev.yml`:
+Edit environment variables in `docker-compose.dev.yml` or use `.env` file:
 
+**Agent Environment Variables:**
 ```yaml
 environment:
-  - NODE_NAME=dev-agent-1
+  - NODE_NAME=${NODE_NAME:-dev-agent-1}
   - ETCD_ENDPOINTS=http://etcd:2379
-  - ETCD_PREFIX=/nnoe
+  - ETCD_PREFIX=${ETCD_PREFIX:-/nnoe}
+  - LOG_LEVEL=${LOG_LEVEL:-info}
+  - RUST_LOG=${RUST_LOG:-nnoe_agent=info}
+  - NODE_ROLE=${NODE_ROLE:-agent}  # 'agent' or 'db-only'
+```
+
+**MISP Sync Environment Variables:**
+```yaml
+environment:
+  - MISP_URL=${MISP_URL:-http://localhost}
+  - MISP_API_KEY=${MISP_API_KEY:-}
+  - MISP_URL_2=${MISP_URL_2:-}  # Optional second instance
+  - MISP_API_KEY_2=${MISP_API_KEY_2:-}
+  - MISP_FILTER_TAGS=${MISP_FILTER_TAGS:-}  # Comma-separated tags
+  - MISP_DEDUP=${MISP_DEDUP:-true}  # Enable deduplication
+  - ETCD_ENDPOINTS=http://etcd:2379
+  - ETCD_PREFIX=${ETCD_PREFIX:-/nnoe}
+  - SYNC_INTERVAL_SECS=${SYNC_INTERVAL_SECS:-3600}
+```
+
+**phpIPAM Environment Variables:**
+```yaml
+environment:
+  - NNOE_ETCD_ENDPOINTS=http://etcd:2379
+  - NNOE_ETCD_PREFIX=${ETCD_PREFIX:-/nnoe}
+  - NNOE_ENABLE_DNS_MANAGEMENT=${NNOE_ENABLE_DNS_MANAGEMENT:-true}
+  - NNOE_ENABLE_DHCP_MANAGEMENT=${NNOE_ENABLE_DHCP_MANAGEMENT:-true}
+  - NNOE_ENABLE_THREAT_VIEWER=${NNOE_ENABLE_THREAT_VIEWER:-true}
+  - NNOE_GRAFANA_URL=${NNOE_GRAFANA_URL:-}  # Optional Grafana URL
+  - NNOE_GRAFANA_DASHBOARD=${NNOE_GRAFANA_DASHBOARD:-}  # Optional dashboard ID
+  - NNOE_ETCD_TLS_CA_CERT=${NNOE_ETCD_TLS_CA_CERT:-}  # Optional TLS CA cert path
+  - NNOE_ETCD_TLS_CERT=${NNOE_ETCD_TLS_CERT:-}  # Optional TLS client cert path
+  - NNOE_ETCD_TLS_KEY=${NNOE_ETCD_TLS_KEY:-}  # Optional TLS client key path
+  - NNOE_ETCD_TLS_VERIFY=${NNOE_ETCD_TLS_VERIFY:-true}  # TLS verification
 ```
 
 Agent configuration is mounted from `agent-config` volume. To update:
@@ -76,9 +110,31 @@ Production setup includes HA etcd cluster and load balancing.
 
 ```bash
 cat > .env <<EOF
+# Node Configuration
 NODE_NAME=agent-prod-1
+NODE_ROLE=agent  # or 'db-only' for DB-only nodes
+
+# etcd Configuration
+ETCD_ENDPOINTS=http://etcd-lb:2379
+ETCD_PREFIX=/nnoe
+ETCD_CLUSTER_TOKEN=nnoe-cluster-prod
+
+# MISP Configuration
 MISP_URL=https://misp.example.com
 MISP_API_KEY=your-api-key-here
+MISP_URL_2=https://misp2.example.com  # Optional second instance
+MISP_API_KEY_2=your-api-key-2
+MISP_FILTER_TAGS=malware,phishing  # Optional tag filter
+MISP_DEDUP=true  # Enable deduplication
+
+# Logging
+LOG_LEVEL=info
+RUST_LOG=nnoe_agent=info
+
+# Scaling
+AGENT_REPLICAS=2
+ETCD_LB_PORT=2379
+PHPIPAM_PORT=8080
 EOF
 ```
 
@@ -144,11 +200,26 @@ Services use `nnoe-dev` (dev) or `nnoe-internal` (prod) network.
 
 Expose ports:
 
+**Development (`docker-compose.dev.yml`):**
 ```yaml
 ports:
-  - "2379:2379"  # etcd
-  - "8080:80"    # phpIPAM
+  - "2379:2379"  # etcd client port
+  - "2380:2380"  # etcd peer port
+  - "${PHPIPAM_PORT:-8080}:80"  # phpIPAM web interface
 ```
+
+**Production (`docker-compose.prod.yml`):**
+```yaml
+ports:
+  - "${ETCD_LB_PORT:-2379}:2379"  # HAProxy etcd load balancer
+  - "9090:9090"  # Prometheus exporter (if deployed)
+```
+
+**Agent Health and Metrics:**
+- Health endpoint: `http://localhost:8080/health` (internal container port)
+- Metrics endpoint: `http://localhost:9090/metrics` (if Prometheus exporter deployed)
+
+**Note**: Production setup uses HAProxy load balancer for etcd access. Direct etcd ports are not exposed externally for security.
 
 ### Network Isolation
 
@@ -194,15 +265,47 @@ docker volume rm nnoe-etcd-data
 
 ## Health Checks
 
-All services include health checks:
+All services include health checks with `service_healthy` dependency conditions.
 
+**Check Service Health:**
 ```bash
-# Check service health
-docker-compose ps
+# View all services and their health status
+docker-compose -f docker-compose.dev.yml ps
 
-# View health status
+# Check specific service health
 docker inspect nnoe-agent-dev | jq '.[0].State.Health'
+
+# View detailed health check status
+docker inspect --format='{{json .State.Health}}' nnoe-etcd-dev | jq
 ```
+
+**Health Check Configurations:**
+
+- **etcd**: `etcdctl endpoint health`
+  - Interval: 10s, Timeout: 5s, Retries: 5
+  - Start period: 30s (production) or immediate (dev)
+
+- **Agent**: HTTP GET `http://localhost:8080/health`
+  - Interval: 30s, Timeout: 10s, Retries: 3
+  - Start period: 40s (dev) or 60s (production)
+  - Requires `curl` in container
+
+- **MISP Sync**: Process check via `pgrep -f misp-sync`
+  - Interval: 60s, Timeout: 5s, Retries: 3
+  - Start period: 10s
+
+- **phpIPAM**: HTTP GET `http://localhost/index.php`
+  - Interval: 30s, Timeout: 10s, Retries: 3
+  - Start period: 60s
+
+- **etcd-lb (HAProxy)**: Configuration check `haproxy -c -f /usr/local/etc/haproxy/haproxy.cfg`
+  - Interval: 10s, Timeout: 5s, Retries: 3
+
+**Dependency Chains:**
+- Agent depends on `etcd` being healthy (dev) or `etcd-lb` being healthy (prod)
+- MISP sync depends on `etcd` being healthy
+- phpIPAM depends on `etcd` being healthy
+- Services wait for dependencies to be healthy before starting
 
 ## Updating
 

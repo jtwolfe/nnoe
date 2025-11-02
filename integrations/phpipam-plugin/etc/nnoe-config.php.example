@@ -23,3 +23,13 @@ define('NNOE_DASHBOARD_REFRESH', 30);
 // Prometheus metrics endpoint (optional)
 define('NNOE_PROMETHEUS_ENDPOINT', 'http://localhost:9090');
 
+// Grafana integration (optional)
+define('NNOE_GRAFANA_URL', 'http://localhost:3000');
+define('NNOE_GRAFANA_DASHBOARD', 'nnoe-dashboard'); // Dashboard ID or slug
+
+// TLS configuration (optional)
+define('NNOE_ETCD_TLS_CA_CERT', '/etc/nnoe/certs/ca.crt');
+define('NNOE_ETCD_TLS_CERT', '/etc/nnoe/certs/client.crt');
+define('NNOE_ETCD_TLS_KEY', '/etc/nnoe/certs/client.key');
+define('NNOE_ETCD_TLS_VERIFY', true);
+

@@ -1,0 +1,126 @@
+groups:
+  - name: nnoe_agent_alerts
+    interval: 30s
+    rules:
+      - alert: NNOEAgentDown
+        expr: nnoe_agent_uptime_seconds == 0 or absent_over_time(nnoe_agent_uptime_seconds[5m])
+        for: 2m
+        labels:
+          severity: critical
+          component: agent
+        annotations:
+          summary: "NNOE Agent is down"
+          description: "NNOE agent on {{ $labels.instance }} has been down for more than 2 minutes."
+
+      - alert: NNOEEtcdDisconnected
+        expr: nnoe_agent_etcd_connected == 0
+        for: 1m
+        labels:
+          severity: critical
+          component: etcd
+        annotations:
+          summary: "NNOE Agent lost etcd connection"
+          description: "NNOE agent on {{ $labels.instance }} has lost connection to etcd cluster."
+
+      - alert: NNOEHighBlockedQueries
+        expr: rate(nnoe_blocked_queries_total[5m]) > 100
+        for: 5m
+        labels:
+          severity: warning
+          component: dns
+        annotations:
+          summary: "High rate of blocked DNS queries"
+          description: "Blocked query rate on {{ $labels.instance }} is {{ $value }} queries/sec (threshold: 100)"
+
+      - alert: NNOELowDHCPLeases
+        expr: nnoe_dhcp_leases_active < 10
+        for: 10m
+        labels:
+          severity: warning
+          component: dhcp
+        annotations:
+          summary: "Low DHCP lease count"
+          description: "DHCP active leases on {{ $labels.instance }} is {{ $value }} (threshold: 10)"
+
+      - alert: NNOEHighConfigUpdateRate
+        expr: rate(nnoe_agent_config_updates_total[5m]) > 10
+        for: 2m
+        labels:
+          severity: warning
+          component: agent
+        annotations:
+          summary: "High configuration update rate"
+          description: "Config update rate on {{ $labels.instance }} is {{ $value }} updates/sec (threshold: 10)"
+
+      - alert: NNOEFrequentServiceReloads
+        expr: rate(nnoe_agent_service_reloads_total[5m]) > 5
+        for: 5m
+        labels:
+          severity: warning
+          component: services
+        annotations:
+          summary: "Frequent service reloads"
+          description: "Service reload rate on {{ $labels.instance }} is {{ $value }} reloads/sec (threshold: 5)"
+
+      - alert: NNOECacheSizeHigh
+        expr: nnoe_agent_cache_size_bytes > 1073741824
+        for: 5m
+        labels:
+          severity: warning
+          component: cache
+        annotations:
+          summary: "Cache size is high"
+          description: "Cache size on {{ $labels.instance }} is {{ $value | humanize }} bytes (threshold: 1GB)"
+
+      - alert: NNOEHAStandbyState
+        expr: nnoe_agent_ha_state == 2
+        for: 1h
+        labels:
+          severity: info
+          component: ha
+        annotations:
+          summary: "Agent in HA standby state"
+          description: "Agent on {{ $labels.instance }} has been in standby state for 1 hour. Verify primary node health."
+
+  - name: nnoe_dns_alerts
+    interval: 30s
+    rules:
+      - alert: NNOEDNSQueryRateAnomaly
+        expr: |
+          (
+            rate(nnoe_dns_queries_total[5m]) / 
+            avg_over_time(rate(nnoe_dns_queries_total[5m])[1h:5m])
+          ) > 3
+        for: 10m
+        labels:
+          severity: warning
+          component: dns
+        annotations:
+          summary: "DNS query rate anomaly detected"
+          description: "DNS query rate on {{ $labels.instance }} is 3x higher than 1-hour average."
+
+      - alert: NNOEDNSZeroQueries
+        expr: rate(nnoe_dns_queries_total[10m]) == 0
+        for: 15m
+        labels:
+          severity: warning
+          component: dns
+        annotations:
+          summary: "No DNS queries detected"
+          description: "No DNS queries have been processed on {{ $labels.instance }} for 15 minutes."
+
+  - name: nnoe_dhcp_alerts
+    interval: 30s
+    rules:
+      - alert: NNOEDHCPLeaseExhaustion
+        expr: |
+          (nnoe_dhcp_leases_active / 
+           on(instance) group_left() max(nnoe_dhcp_leases_active)) > 0.95
+        for: 5m
+        labels:
+          severity: critical
+          component: dhcp
+        annotations:
+          summary: "DHCP lease pool near exhaustion"
+          description: "DHCP leases on {{ $labels.instance }} are at {{ $value | humanize }}% of maximum capacity."
+

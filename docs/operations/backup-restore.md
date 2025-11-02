@@ -131,6 +131,105 @@ ETCDCTL_API=3 etcdctl endpoint health --endpoints=https://127.0.0.1:2379 \
 # On other nodes, use etcd member add/remove commands
 ```
 
+#### Point-in-Time Recovery
+
+etcd snapshots capture a specific revision. For point-in-time recovery:
+
+1. **Identify target revision**: Check backup snapshot revision
+   ```bash
+   ETCDCTL_API=3 etcdctl snapshot status /backup/etcd-snapshot-20240101-120000.db
+   # Output shows revision number (e.g., Revision: 12345)
+   ```
+
+2. **Restore from snapshot**: Use standard restore procedure above
+
+3. **Recover incremental changes** (if available):
+   - If using WAL (Write-Ahead Log) backups, replay from snapshot to target time
+   - Otherwise, restore to snapshot time and accept data loss after that point
+
+4. **Verify data consistency**: After restore, verify critical keys
+   ```bash
+   # Check specific keys exist and have expected values
+   ETCDCTL_API=3 etcdctl get /nnoe/dns/zones/example.com \
+     --endpoints=https://127.0.0.1:2379 \
+     --cacert=/etc/nnoe/certs/ca.crt \
+     --cert=/etc/nnoe/certs/client.crt \
+     --key=/etc/nnoe/certs/client.key
+   ```
+
+5. **Rebuild agent caches**: Agents will automatically rebuild sled cache from etcd
+   ```bash
+   # Restart agents to force cache rebuild
+   systemctl restart nnoe-agent
+   ```
+
+### sled Cache Backup/Restore
+
+The sled cache is optional and can be backed up for faster agent recovery:
+
+#### Backup
+
+```bash
+# From agent node
+systemctl stop nnoe-agent
+tar -czf /backup/nnoe/cache/node-$(hostname)-$(date +%Y%m%d-%H%M%S).tar.gz \
+  /var/nnoe/cache
+systemctl start nnoe-agent
+```
+
+#### Restore
+
+```bash
+# From agent node
+systemctl stop nnoe-agent
+
+# Restore cache
+tar -xzf /backup/nnoe/cache/node-hostname-20240101-120000.tar.gz -C /
+
+# Verify cache integrity
+# (sled automatically validates on startup)
+
+systemctl start nnoe-agent
+```
+
+**Note**: Cache restore is optional. Agents will automatically rebuild cache from etcd if cache is missing or corrupted.
+
+### Nebula Certificate Backup
+
+Nebula certificates and keys are critical for overlay network connectivity:
+
+#### Backup
+
+```bash
+# Backup Nebula certificates and keys
+tar -czf /backup/nnoe/nebula/nebula-certs-$(date +%Y%m%d).tar.gz \
+  /etc/nebula/ca.crt \
+  /etc/nebula/host.crt \
+  /etc/nebula/host.key \
+  /etc/nebula/config.yml
+
+# Store in secure location (encrypted)
+```
+
+#### Restore
+
+```bash
+# Restore Nebula certificates
+systemctl stop nebula
+
+# Restore files
+tar -xzf /backup/nnoe/nebula/nebula-certs-20240101.tar.gz -C /
+
+# Verify permissions
+chmod 600 /etc/nebula/host.key
+chmod 644 /etc/nebula/host.crt /etc/nebula/ca.crt
+
+# Restart Nebula
+systemctl start nebula
+```
+
+**Important**: Nebula certificates must match the lighthouse configuration. Ensure certificates are restored from the same cluster/environment.
+
 #### Using Restore Script
 
 ```bash

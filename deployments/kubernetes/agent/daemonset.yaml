@@ -50,29 +50,34 @@ spec:
           mountPath: /etc/kea
         resources:
           requests:
-            memory: "128Mi"
-            cpu: "100m"
+            memory: "256Mi"
+            cpu: "200m"
           limits:
-            memory: "512Mi"
-            cpu: "500m"
+            memory: "1Gi"
+            cpu: "1000m"
         livenessProbe:
-          exec:
-            command:
-            - /usr/local/bin/nnoe-agent
-            - validate
-            - -c
-            - /etc/nnoe/agent.toml
-          initialDelaySeconds: 30
-          periodSeconds: 10
+          httpGet:
+            path: /health
+            port: 8080
+          initialDelaySeconds: 60
+          periodSeconds: 30
+          timeoutSeconds: 10
+          failureThreshold: 3
         readinessProbe:
-          exec:
-            command:
-            - /usr/local/bin/nnoe-agent
-            - validate
-            - -c
-            - /etc/nnoe/agent.toml
-          initialDelaySeconds: 10
-          periodSeconds: 5
+          httpGet:
+            path: /health
+            port: 8080
+          initialDelaySeconds: 20
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        ports:
+        - name: metrics
+          containerPort: 9090
+          protocol: TCP
+        - name: health
+          containerPort: 8080
+          protocol: TCP
       volumes:
       - name: config
         configMap:

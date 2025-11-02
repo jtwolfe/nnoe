@@ -1,4 +1,12 @@
 ---
+- name: Check if NNOE user exists
+  getent:
+    database: passwd
+    key: "{{ nnoe_user }}"
+  register: nnoe_user_exists
+  failed_when: false
+  changed_when: false
+
 - name: Create NNOE user
   user:
     name: "{{ nnoe_user }}"
@@ -7,6 +15,7 @@
     shell: /bin/false
     system: yes
     create_home: yes
+  when: nnoe_user_exists.ansible_facts is not defined
 
 - name: Create NNOE directories
   file:
@@ -20,6 +29,8 @@
     - "{{ nnoe_home }}/cache"
     - /etc/nnoe
     - /var/log/nnoe
+  loop_control:
+    label: "{{ item }}"
 
 - name: Install system dependencies
   package:
@@ -27,5 +38,23 @@
       - curl
       - wget
       - ca-certificates
+      - python3-pip
     state: present
+  register: packages_installed
+
+- name: Validate required directories exist
+  stat:
+    path: "{{ item }}"
+  register: dir_stat
+  loop:
+    - "{{ nnoe_home }}"
+    - /etc/nnoe
+    - /var/log/nnoe
+  failed_when: not dir_stat.results | selectattr('stat.exists') | list | length == dir_stat.results | length
+  changed_when: false
+
+- name: Display NNOE user and directories status
+  debug:
+    msg: "NNOE user: {{ nnoe_user }}, Home: {{ nnoe_home }}, All directories created"
+  when: dir_stat.results | selectattr('stat.exists') | list | length == dir_stat.results | length
 

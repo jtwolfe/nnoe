@@ -2,6 +2,7 @@ use crate::config::EtcdConfig;
 use anyhow::{Context, Result};
 use etcd_client::{Client, ConnectOptions, WatchOptions};
 use std::fs;
+use std::sync::Arc;
 use tokio_stream::StreamExt;
 use tracing::{debug, info, warn};
 
@@ -63,20 +64,17 @@ impl EtcdClient {
 
             let client_key = rustls::PrivateKey(client_key);
 
-            let tls_config = rustls::ClientConfig::builder()
+            let rustls_config = rustls::ClientConfig::builder()
                 .with_safe_defaults()
                 .with_root_certificates(root_cert_store)
                 .with_client_auth_cert(client_cert_chain, client_key)
                 .map_err(|e| anyhow::anyhow!("Failed to build TLS config: {}", e))?;
 
-            // TODO: etcd-client 0.11 TLS configuration
-            // The exact method for setting TLS in etcd-client 0.11 needs to be verified
-            // For now, we'll skip TLS configuration to allow compilation
-            // TLS support should be implemented based on etcd-client 0.11 documentation
-            // Possible methods: connect_options.set_tls(tls_config) or similar
-            // See: https://docs.rs/etcd-client/0.11/etcd_client/struct.ConnectOptions.html
-            warn!("TLS configuration built but not applied - etcd-client 0.11 TLS API needs verification");
-            // connect_options.set_tls(...); // TODO: implement when API is confirmed
+            // Apply TLS configuration to ConnectOptions
+            // etcd-client 0.11 uses tonic for gRPC, which accepts rustls::ClientConfig
+            // Wrapped in Arc for shared ownership across connections
+            connect_options = connect_options.with_tls_config(Arc::new(rustls_config));
+            info!("TLS configuration applied to etcd client");
         }
 
         let client = Client::connect(&config.endpoints, Some(connect_options))

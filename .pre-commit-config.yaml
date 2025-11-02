@@ -1,0 +1,57 @@
+# Pre-commit hooks configuration for NNOE
+
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.5.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: check-added-large-files
+        args: ['--maxkb=1000']
+      - id: check-json
+      - id: check-toml
+      - id: check-merge-conflict
+      - id: mixed-line-ending
+
+  - repo: https://github.com/dprint/dprint-action
+    rev: v1.4.0
+    hooks:
+      - id: dprint-check
+        name: dprint-check
+        entry: dprint check
+        language: system
+        types: [rust]
+        pass_filenames: false
+        always_run: true
+        # Note: This requires dprint to be installed
+        # Alternative: use cargo fmt directly
+
+  - repo: local
+    hooks:
+      - id: cargo-fmt
+        name: cargo fmt
+        entry: bash -c 'cargo fmt --all -- --check || (echo "Run: cargo fmt --all" && exit 1)'
+        language: system
+        types: [rust]
+        pass_filenames: false
+        always_run: true
+
+      - id: cargo-clippy
+        name: cargo clippy
+        entry: bash -c 'cargo clippy --workspace --all-targets -- -D warnings || (echo "Fix clippy warnings" && exit 1)'
+        language: system
+        types: [rust]
+        pass_filenames: false
+        always_run: true
+        # Note: This can be slow, consider making it optional or using --allow-dirty
+
+      - id: cargo-test
+        name: cargo test
+        entry: bash -c 'cargo test --workspace --lib -- --test-threads=1 || exit 1'
+        language: system
+        types: [rust]
+        pass_filenames: false
+        always_run: false
+        # Only run tests on commit, not on every file change
+

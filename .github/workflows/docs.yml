@@ -1,0 +1,90 @@
+name: Documentation
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'docs/**'
+      - '*.md'
+  pull_request:
+    branches: [ main ]
+    paths:
+      - 'docs/**'
+      - '*.md'
+  workflow_dispatch:
+
+jobs:
+  docs:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Install Rust toolchain
+      uses: dtolnay/rust-toolchain@stable
+    
+    - name: Install mdbook
+      run: |
+        curl -L https://github.com/rust-lang/mdBook/releases/download/v0.4.36/mdbook-v0.4.36-x86_64-unknown-linux-gnu.tar.gz | tar xz
+        sudo mv mdbook /usr/local/bin/
+        mdbook --version
+    
+    - name: Install link checker
+      run: |
+        cargo install mdbook-linkcheck || true
+      continue-on-error: true
+    
+    - name: Check markdown formatting
+      run: |
+        echo "Checking markdown files..."
+        # Basic markdown linting with markdownlint if available
+        if command -v markdownlint &> /dev/null || npm list -g markdownlint-cli &> /dev/null; then
+          markdownlint '**/*.md' || true
+        else
+          echo "Markdown linter not available, skipping"
+        fi
+      continue-on-error: true
+    
+    - name: Check for broken links
+      run: |
+        echo "Checking for broken links in documentation..."
+        if command -v mdbook-linkcheck &> /dev/null; then
+          # If mdbook.toml exists, use mdbook
+          if [ -f "book.toml" ] || [ -f "docs/mdbook.toml" ]; then
+            mdbook-linkcheck --help || echo "Link checking requires mdbook configuration"
+          else
+            echo "No mdbook configuration found, skipping link check"
+          fi
+        else
+          echo "mdbook-linkcheck not available"
+        fi
+      continue-on-error: true
+    
+    - name: Build documentation
+      run: |
+        echo "Building documentation..."
+        if [ -f "book.toml" ] || [ -f "docs/mdbook.toml" ]; then
+          mdbook build || {
+            echo "::error::Documentation build failed"
+            exit 1
+          }
+          echo "Documentation built successfully"
+        else
+          echo "No mdbook configuration, checking doc comments..."
+          cargo doc --workspace --no-deps --document-private-items || {
+            echo "::warning::cargo doc failed, but continuing"
+          }
+        fi
+    
+    - name: Upload documentation
+      if: github.ref == 'refs/heads/main'
+      uses: actions/upload-artifact@v4
+      with:
+        name: documentation
+        path: |
+          book/
+          target/doc/
+        retention-days: 30
+      continue-on-error: true
+

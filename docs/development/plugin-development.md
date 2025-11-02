@@ -255,6 +255,138 @@ pub struct EventEmittingPlugin {
 4. Provide examples
 5. Add to NNOE documentation
 
+## Troubleshooting
+
+### Plugin Not Receiving Config Changes
+
+If your plugin doesn't receive `on_config_change()` calls:
+
+1. **Check etcd prefix registration**: Ensure your plugin's etcd keys match watched prefixes
+   ```rust
+   // In orchestrator.rs, add your prefix to watch_config_changes():
+   format!("{}/my-service", self.config.etcd.prefix),
+   ```
+
+2. **Verify key format**: Keys must match the prefix pattern
+   ```bash
+   # Correct: /nnoe/my-service/config
+   # Incorrect: /my-service/config (missing prefix)
+   ```
+
+3. **Check plugin registration**: Verify plugin is registered in `register_services()`
+   ```rust
+   self.plugin_registry.register(plugin).await?;
+   ```
+
+4. **Review logs**: Check for watch errors in agent logs
+   ```bash
+   journalctl -u nnoe-agent -f | grep "Watch error"
+   ```
+
+### Plugin Initialization Fails
+
+Common causes:
+
+1. **Missing dependencies**: Ensure required services are running
+2. **Invalid configuration**: Check config validation in `init()`
+3. **Permission issues**: Verify file/directory permissions
+4. **Port conflicts**: Ensure ports aren't already in use
+
+Example debugging:
+```rust
+async fn init(&mut self, config: &[u8]) -> Result<()> {
+    // Validate config first
+    let cfg: MyConfig = serde_json::from_slice(config)
+        .map_err(|e| anyhow::anyhow!("Invalid config: {}", e))?;
+    
+    // Check prerequisites
+    if !Path::new(&cfg.config_path).exists() {
+        return Err(anyhow::anyhow!("Config path missing: {}", cfg.config_path));
+    }
+    
+    // Continue initialization
+    Ok(())
+}
+```
+
+### Plugin Health Check Fails
+
+Implement meaningful health checks:
+
+```rust
+async fn health_check(&self) -> Result<bool> {
+    // Check if service process is running
+    let output = Command::new("systemctl")
+        .arg("is-active")
+        .arg(self.service_name)
+        .output()
+        .context("Failed to check service status")?;
+    
+    if !output.status.success() {
+        return Ok(false);
+    }
+    
+    // Optionally check if service is responding
+    let client = reqwest::Client::new();
+    match client.get(&format!("http://localhost:{}/health", self.port))
+        .timeout(Duration::from_secs(1))
+        .send()
+        .await {
+        Ok(resp) => Ok(resp.status().is_success()),
+        Err(_) => Ok(false),
+    }
+}
+```
+
+### Plugin Reload Issues
+
+When `reload()` is called:
+
+1. **Avoid blocking**: Use async operations
+2. **Handle partial failures**: Rollback on error if needed
+3. **Verify state**: Check service actually reloaded
+
+```rust
+async fn reload(&mut self) -> Result<()> {
+    // Generate new config
+    self.generate_config().await?;
+    
+    // Attempt reload
+    match self.reload_service().await {
+        Ok(_) => {
+            info!("Service reloaded successfully");
+            Ok(())
+        }
+        Err(e) => {
+            error!("Reload failed, attempting restart: {}", e);
+            // Fallback to restart
+            self.restart_service().await
+        }
+    }
+}
+```
+
+### Debugging Config Changes
+
+Add logging to trace config change flow:
+
+```rust
+async fn on_config_change(&mut self, key: &str, value: &[u8]) -> Result<()> {
+    debug!("Config change received for key: {}", key);
+    debug!("Value size: {} bytes", value.len());
+    
+    if key.contains("/my-service/") {
+        let config: MyConfig = serde_json::from_slice(value)
+            .context(format!("Failed to parse config for key: {}", key))?;
+        
+        debug!("Parsed config: {:?}", config);
+        self.update_config(config).await?;
+    }
+    
+    Ok(())
+}
+```
+
 ## Resources
 
 - [ServicePlugin Trait](agent/src/plugin/trait_def.rs)

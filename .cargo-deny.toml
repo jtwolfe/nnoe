@@ -1,0 +1,45 @@
+# Cargo-deny configuration for license and security checks
+
+[advisories]
+vulnerability = "deny"
+unmaintained = "warn"
+unsound = "deny"
+notice = "warn"
+ignore = [
+    # Add specific advisory IDs to ignore if needed
+]
+
+[licenses]
+# Allow only these licenses
+allow = [
+    "Apache-2.0",
+    "MIT",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "MPL-2.0",
+]
+# Default deny
+default = "deny"
+copyleft = "deny"
+# Allow certain licenses with conditions
+allow-osi-fsf-free = "neither"
+
+[bans]
+# Deny specific crates
+deny = [
+    # Add banned crates here if needed
+]
+skip = []
+
+[sources]
+# Define allowed registries
+unknown-registry = "warn"
+unknown-git = "warn"
+allow-registry = ["crates.io"]
+allow-git = []
+
+[workspace]
+# Workspace-level configuration
+exclude = []
+

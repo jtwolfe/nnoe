@@ -6,8 +6,12 @@ namespace: nnoe
 resources:
   - management/namespace.yaml
   - management/etcd-statefulset.yaml
+  - management/etcd-service.yaml
   - agent/daemonset.yaml
   - agent/configmap.yaml
+  - agent/service.yaml
+  - agent/servicemonitor.yaml
+  - networkpolicy.yaml
 
 commonLabels:
   app: nnoe

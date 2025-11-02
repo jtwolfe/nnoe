@@ -9,8 +9,12 @@ on:
 
 jobs:
   e2e:
+    strategy:
+      fail-fast: false
+      matrix:
+        test-scenario: [zone-management, dhcp-scope, threat-blocking]
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
     
     steps:
     - uses: actions/checkout@v4
@@ -66,39 +70,28 @@ jobs:
         echo "All services started"
         docker compose ps
     
-    - name: Wait for agent-test container to complete
+    - name: Run integration tests
       working-directory: testing/integration/e2e
       run: |
-        echo "Waiting for agent-test container to complete..."
-        # The agent-test container runs tests and exits
-        # Wait for it to complete and capture exit code
-        timeout=300
-        elapsed=0
-        while [ $elapsed -lt $timeout ]; do
-          status=$(docker compose ps agent-test --format "{{.Status}}" 2>/dev/null || echo "not found")
-          if echo "$status" | grep -q "Exited"; then
-            exit_code=$(docker compose ps agent-test --format "{{.ExitCode}}" 2>/dev/null || echo "unknown")
-            echo "agent-test container exited with code: $exit_code"
-            if [ "$exit_code" != "0" ] && [ "$exit_code" != "unknown" ]; then
-              echo "Tests failed with exit code $exit_code"
-              docker compose logs agent-test
-              exit 1
-            fi
-            echo "Tests completed successfully"
-            break
-          fi
-          echo "Waiting for tests... ($elapsed/$timeout seconds)"
-          sleep 5
-          elapsed=$((elapsed + 5))
-        done
-        if [ $elapsed -ge $timeout ]; then
-          echo "Error: Tests did not complete within $timeout seconds"
-          docker compose ps
-          docker compose logs agent-test
-          exit 1
+        echo "Running integration tests for scenario: ${{ matrix.test-scenario }}"
+        
+        # Run specific test scenario or all tests
+        if [ -f "docker-compose.yml" ]; then
+          # Start test container with specific test
+          docker compose run --rm agent-test cargo test --test ${{ matrix.test-scenario }} -- --nocapture || {
+            echo "::error::Integration tests failed for ${{ matrix.test-scenario }}"
+            docker compose logs
+            exit 1
+          }
+        else
+          echo "Running tests directly..."
+          cargo test --test ${{ matrix.test-scenario }} -- --nocapture || {
+            echo "::error::Tests failed"
+            exit 1
+          }
         fi
-        # Show test output
-        docker compose logs agent-test
+        
+        echo "Tests completed successfully"
     
     - name: Collect logs on failure
       if: failure()

@@ -2,8 +2,10 @@ use crate::config::LynisServiceConfig;
 use crate::plugin::ServicePlugin;
 use anyhow::{Context, Result};
 use async_trait::async_trait;
+use regex::Regex;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::fs;
 use std::path::PathBuf;
 use std::process::Command;
 use std::sync::Arc;
@@ -80,7 +82,21 @@ impl LynisService {
             return Err(anyhow::anyhow!("Lynis audit failed: {}", stderr));
         }
 
-        // Parse Lynis report (simplified - real parsing would be more complex)
+        // Parse Lynis report file
+        let report = self.parse_lynis_report().await?;
+
+        info!("Lynis audit completed with score: {:?}", report.score);
+        Ok(report)
+    }
+
+    /// Parse Lynis report file and extract structured data
+    async fn parse_lynis_report(&self) -> Result<LynisReport> {
+        let report_path = PathBuf::from(&self.config.report_path);
+        
+        // Read report file
+        let report_content = fs::read_to_string(&report_path)
+            .context(format!("Failed to read Lynis report: {:?}", report_path))?;
+
         let node_id = self
             .node_id
             .read()
@@ -89,17 +105,118 @@ impl LynisService {
             .unwrap_or_else(|| "unknown".to_string());
         let timestamp = chrono::Utc::now().to_rfc3339();
 
-        let report = LynisReport {
+        let mut score: Option<u32> = None;
+        let mut warnings = Vec::new();
+        let mut suggestions = Vec::new();
+        let mut sections = HashMap::new();
+
+        // Parse hardening index (score)
+        // Pattern: "Hardening index : [XX]" or "Hardening index : XX"
+        let score_regex = Regex::new(r#"Hardening\s+index\s*[=:]\s*\[?(\d+)\]?"#).unwrap();
+        if let Some(captures) = score_regex.captures(&report_content) {
+            if let Ok(parsed_score) = captures.get(1).unwrap().as_str().parse::<u32>() {
+                score = Some(parsed_score);
+            }
+        }
+
+        // Parse warnings
+        // Pattern: "[WARNING]" followed by text
+        let warning_regex = Regex::new(r#"\[WARNING\]\s*(.+)"#).unwrap();
+        for cap in warning_regex.captures_iter(&report_content) {
+            if let Some(warning_text) = cap.get(1) {
+                let warning = warning_text.as_str().trim().to_string();
+                if !warning.is_empty() {
+                    warnings.push(warning);
+                }
+            }
+        }
+
+        // Parse suggestions
+        // Pattern: "[SUGGESTION]" followed by text
+        let suggestion_regex = Regex::new(r#"\[SUGGESTION\]\s*(.+)"#).unwrap();
+        for cap in suggestion_regex.captures_iter(&report_content) {
+            if let Some(suggestion_text) = cap.get(1) {
+                let suggestion = suggestion_text.as_str().trim().to_string();
+                if !suggestion.is_empty() {
+                    suggestions.push(suggestion);
+                }
+            }
+        }
+
+        // Parse sections (test categories)
+        // Pattern: "[+] <Section Name>" followed by test items
+        let section_regex = Regex::new(r#"\[\+\]\s+([^\[\n]+)"#).unwrap();
+        let mut current_section: Option<String> = None;
+        let mut current_items = Vec::new();
+
+        for line in report_content.lines() {
+            // Check for section headers
+            if let Some(cap) = section_regex.captures(line) {
+                // Save previous section if exists
+                if let Some(section_name) = current_section.take() {
+                    if !current_items.is_empty() {
+                        sections.insert(section_name.clone(), LynisSection {
+                            score: None, // Section scores not typically in report
+                            status: "completed".to_string(),
+                            items: current_items.clone(),
+                        });
+                    }
+                    current_items.clear();
+                }
+
+                // Start new section
+                let section_name = cap.get(1).unwrap().as_str().trim().to_string();
+                current_section = Some(section_name);
+            }
+            
+            // Parse test items within sections
+            // Pattern: "  - [X]" or "  - [NO]" or "  - [OK]" etc.
+            if current_section.is_some() {
+                let item_regex = Regex::new(r#"^\s+- \[([A-Z_]+)\]\s+(.+)"#).unwrap();
+                if let Some(cap) = item_regex.captures(line) {
+                    let status = cap.get(1).unwrap().as_str().to_string();
+                    let message = cap.get(2).map(|m| m.as_str().trim().to_string());
+
+                    // Extract plugin/option from message (if format: "Plugin-Name: Option-Name")
+                    let (plugin, option) = if let Some(msg) = &message {
+                        if let Some((p, o)) = msg.split_once(':') {
+                            (p.trim().to_string(), o.trim().to_string())
+                        } else {
+                            ("unknown".to_string(), msg.clone())
+                        }
+                    } else {
+                        ("unknown".to_string(), "unknown".to_string())
+                    };
+
+                    current_items.push(LynisItem {
+                        plugin,
+                        option,
+                        status,
+                        message,
+                    });
+                }
+            }
+        }
+
+        // Save last section
+        if let Some(section_name) = current_section {
+            if !current_items.is_empty() {
+                sections.insert(section_name, LynisSection {
+                    score: None,
+                    status: "completed".to_string(),
+                    items: current_items,
+                });
+            }
+        }
+
+        Ok(LynisReport {
             node: node_id,
             timestamp,
-            score: None, // Would parse from report file
-            warnings: Vec::new(),
-            suggestions: Vec::new(),
-            sections: HashMap::new(),
-        };
-
-        info!("Lynis audit completed");
-        Ok(report)
+            score,
+            warnings,
+            suggestions,
+            sections,
+        })
     }
 
     async fn upload_report_to_etcd(&self, report: &LynisReport) -> Result<()> {
@@ -148,15 +265,15 @@ impl LynisService {
 
                     match lynis_output {
                         Ok(output) if output.status.success() => {
-                            let timestamp = chrono::Utc::now().to_rfc3339();
-                            Ok(LynisReport {
-                                node: node_id_str,
-                                timestamp,
-                                score: None,
-                                warnings: Vec::new(),
-                                suggestions: Vec::new(),
-                                sections: HashMap::new(),
-                            })
+                            // Parse the report file
+                            // Create a temporary service instance with minimal setup
+                            let mut service = LynisService::new(config.clone(), Some(node_id_str.clone()));
+                            // Set the node_id for parsing
+                            {
+                                let mut node_id_guard = service.node_id.write().await;
+                                *node_id_guard = Some(node_id_str.clone());
+                            }
+                            service.parse_lynis_report().await
                         }
                         Ok(output) => {
                             let stderr = String::from_utf8_lossy(&output.stderr);

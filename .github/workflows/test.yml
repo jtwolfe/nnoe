@@ -8,16 +8,22 @@ on:
 
 jobs:
   test:
-    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        rust: [stable]
+        os: [ubuntu-latest]
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 45
     
     steps:
     - uses: actions/checkout@v4
     
     - name: Install Rust toolchain
-      uses: dtolnay/rust-toolchain@stable
+      uses: dtolnay/rust-toolchain@master
       with:
-        toolchain: stable
+        toolchain: ${{ matrix.rust }}
+        components: rustfmt, clippy
     
     - name: Install protobuf compiler
       run: |
@@ -30,10 +36,12 @@ jobs:
         path: |
           ~/.cargo/registry
           ~/.cargo/git
+          ~/.cargo/bin
           target/
-        key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.toml') }}
+        key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.toml', '**/Cargo.lock') }}
         restore-keys: |
           ${{ runner.os }}-cargo-
+        fail-on-cache-miss: false
     
     - name: Check formatting
       timeout-minutes: 5
@@ -61,15 +69,56 @@ jobs:
         }
         echo "Clippy check passed"
     
-    - name: Run tests
-      timeout-minutes: 20
+    - name: Install cargo-audit
+      timeout-minutes: 5
       run: |
-        echo "Running tests..."
-        cargo test --workspace -- --test-threads=1 || {
-          echo "::error::Tests failed"
-          exit 1
+        cargo install cargo-audit --version "^0.18" || true
+      continue-on-error: true
+    
+    - name: Run cargo audit (security check)
+      timeout-minutes: 10
+      run: |
+        echo "Running security audit..."
+        cargo audit --version || cargo install cargo-audit --version "^0.18"
+        cargo audit || {
+          echo "::warning::Security vulnerabilities found. Review and update dependencies."
+          echo "Run 'cargo audit' locally for details."
         }
+      continue-on-error: true
+    
+    - name: Install cargo-tarpaulin (test coverage)
+      timeout-minutes: 10
+      run: |
+        cargo install cargo-tarpaulin --version "^0.27" || true
+      continue-on-error: true
+    
+    - name: Run tests with coverage
+      timeout-minutes: 30
+      run: |
+        echo "Running tests with coverage..."
+        if command -v cargo-tarpaulin &> /dev/null; then
+          cargo tarpaulin --workspace --out Xml --timeout 120 || {
+            echo "::error::Tests failed or coverage collection failed"
+            exit 1
+          }
+          echo "Coverage report generated"
+        else
+          echo "cargo-tarpaulin not available, running tests without coverage..."
+          cargo test --workspace -- --test-threads=1 || {
+            echo "::error::Tests failed"
+            exit 1
+          }
+        fi
         echo "All tests passed"
+    
+    - name: Upload coverage to Codecov
+      uses: codecov/codecov-action@v4
+      with:
+        files: ./cobertura.xml
+        flags: unittests
+        name: codecov-umbrella
+        fail_ci_if_error: false
+      continue-on-error: true
     
     - name: Build all packages
       timeout-minutes: 15

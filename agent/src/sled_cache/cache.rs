@@ -317,10 +317,31 @@ impl CacheManager {
         self.db.len()
     }
 
+    /// Get cache statistics
+    pub fn get_stats(&self) -> CacheStats {
+        let size_bytes = self.db.size_on_disk().unwrap_or(0);
+        let entry_count = self.db.len();
+        
+        CacheStats {
+            size_bytes,
+            entry_count,
+            max_size_bytes: self.config.max_size_mb * 1024 * 1024,
+            ttl_secs: self.config.default_ttl_secs,
+        }
+    }
+
     pub fn flush(&self) -> Result<()> {
         self.db.flush()?;
         Ok(())
     }
+}
+
+#[derive(Debug, Clone)]
+pub struct CacheStats {
+    pub size_bytes: usize,
+    pub entry_count: usize,
+    pub max_size_bytes: u64,
+    pub ttl_secs: u64,
 }
 
 impl Drop for CacheManager {

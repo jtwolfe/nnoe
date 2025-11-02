@@ -1,4 +1,4 @@
-# MISP Sync Service
+# Multi-stage build for MISP Sync Service
 
 FROM rust:1.70 as builder
 
@@ -8,17 +8,30 @@ WORKDIR /app
 COPY Cargo.toml Cargo.lock ./
 COPY integrations/misp-sync/ ./integrations/misp-sync/
 
-# Build
-RUN cargo build --release --package nnoe-misp-sync
+# Build dependencies first (caching layer)
+RUN cargo build --release --package nnoe-misp-sync || \
+    (cargo build --package nnoe-misp-sync --release)
 
 # Final stage
 FROM debian:bullseye-slim
 
+LABEL maintainer="NNOE Contributors"
+LABEL description="NNOE MISP Sync - Threat intelligence synchronization service"
+
 RUN apt-get update && apt-get install -y \
     ca-certificates \
+    curl \
     && rm -rf /var/lib/apt/lists/*
 
+# Create nnoe user
+RUN useradd -r -s /bin/false -d /var/lib/nnoe -m nnoe
+
 COPY --from=builder /app/target/release/misp-sync /usr/local/bin/misp-sync
+
+# Switch to non-root user
+USER nnoe
+
+WORKDIR /var/lib/nnoe
 
 ENTRYPOINT ["/usr/local/bin/misp-sync"]
 

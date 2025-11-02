@@ -9,15 +9,70 @@
     nnoe_home: "/var/lib/nnoe"
     etcd_endpoints: "http://127.0.0.1:2379"
     etcd_prefix: "/nnoe"
+    nnoe_build: false  # Set to true to build from source, false to use pre-built binary
     
+  pre_tasks:
+    - name: Gather system facts
+      setup:
+      
+    - name: Validate OS compatibility
+      assert:
+        that:
+          - ansible_os_family in ["RedHat", "Debian", "Suse"]
+          - ansible_distribution_major_version | int >= 7  # For RHEL/CentOS
+          - ansible_distribution_major_version | int >= 18  # For Ubuntu
+        fail_msg: "Unsupported OS: {{ ansible_distribution }} {{ ansible_distribution_version }}"
+        success_msg: "OS compatibility check passed: {{ ansible_distribution }} {{ ansible_distribution_version }}"
+      
+    - name: Check required system resources
+      assert:
+        that:
+          - ansible_memtotal_mb | int >= 2048
+          - ansible_processor_vcpus | int >= 2
+        fail_msg: "Insufficient system resources. Minimum: 2GB RAM, 2 CPU cores"
+        success_msg: "System resources adequate: {{ ansible_memtotal_mb }}MB RAM, {{ ansible_processor_vcpus }} CPUs"
+      failed_when: false
+      
   roles:
-    - common
-    - etcd
-    - agent
-    - services
+    - role: common
+      tags: [common, setup]
+    - role: etcd
+      when: nnoe_node_role in ["management", "agent"]
+      tags: [etcd, management]
+    - role: agent
+      when: nnoe_node_role != "skip"
+      tags: [agent]
+    - role: services
+      when: nnoe_node_role == "active"
+      tags: [services, dns, dhcp]
 
-  tasks:
-    - name: Ensure NNOE is deployed
+  post_tasks:
+    - name: Validate etcd connectivity
+      uri:
+        url: "http://{{ item }}:2379/health"
+        method: GET
+        status_code: [200, 404]
+      loop: "{{ etcd_endpoints | default(['http://127.0.0.1:2379']) | map('regex_replace', 'http://', '') | map('regex_replace', ':2379', '') | map('regex_replace', '/.*', '') | list }}"
+      register: etcd_health_checks
+      failed_when: etcd_health_checks.results | selectattr('status', 'equalto', 200) | list | length == 0
+      changed_when: false
+      when: nnoe_node_role in ["management", "agent"]
+
+    - name: Validate agent configuration
+      command: /usr/local/bin/nnoe-agent validate -c /etc/nnoe/agent.toml
+      register: agent_config_validation
+      failed_when: agent_config_validation.rc != 0
+      changed_when: false
+      when: nnoe_node_role != "skip"
+
+    - name: Display deployment summary
       debug:
-        msg: "NNOE deployment complete"
+        msg: |
+          NNOE Deployment Summary:
+          - User: {{ nnoe_user }}
+          - Home: {{ nnoe_home }}
+          - Node Role: {{ nnoe_node_role | default('active') }}
+          - etcd Endpoints: {{ etcd_endpoints | join(', ') }}
+          - Agent Status: {{ agent_active_check.stdout | default('not checked') }}
+          - Services: DNS={{ dns_enabled | default(true) }}, DHCP={{ dhcp_enabled | default(true) }}
 

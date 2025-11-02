@@ -1,5 +1,6 @@
 use crate::config::AgentConfig;
 use crate::etcd::EtcdClient;
+use crate::metrics::AgentMetrics;
 use crate::nebula::NebulaManager;
 use crate::plugin::{PluginRegistry, ServicePlugin};
 use crate::services::{CerbosService, DnsdistService, KeaService, KnotService, LynisService};
@@ -16,6 +17,7 @@ pub struct Orchestrator {
     cache_manager: Arc<CacheManager>,
     nebula_manager: Option<Arc<NebulaManager>>,
     plugin_registry: Arc<PluginRegistry>,
+    metrics: Arc<AgentMetrics>,
 }
 
 impl Orchestrator {
@@ -51,12 +53,16 @@ impl Orchestrator {
         // Initialize plugin registry
         let plugin_registry = Arc::new(PluginRegistry::new());
 
+        // Initialize metrics
+        let metrics = Arc::new(AgentMetrics::new());
+
         Ok(Self {
             config,
             etcd_client,
             cache_manager,
             nebula_manager,
             plugin_registry,
+            metrics,
         })
     }
 
@@ -115,6 +121,11 @@ impl Orchestrator {
         if let Some(ref dhcp_config) = self.config.services.dhcp {
             if dhcp_config.enabled {
                 let kea_service = KeaService::new(dhcp_config.clone());
+                
+                // Set etcd client and node name for HA coordination
+                kea_service.set_etcd_client(Arc::clone(&self.etcd_client)).await;
+                kea_service.set_node_name(self.config.node.name.clone()).await;
+
                 let plugin: Arc<RwLock<Box<dyn ServicePlugin + Send + Sync>>> =
                     Arc::new(RwLock::new(Box::new(kea_service)));
 
@@ -202,16 +213,18 @@ impl Orchestrator {
             format!("{}/dhcp/scopes", self.config.etcd.prefix),
             format!("{}/policies", self.config.etcd.prefix),
             format!("{}/threats", self.config.etcd.prefix),
+            format!("{}/role-mappings", self.config.etcd.prefix),
         ];
 
         for prefix in watch_prefixes {
             let client = Arc::clone(&self.etcd_client);
             let cache = Arc::clone(&self.cache_manager);
             let registry = Arc::clone(&self.plugin_registry);
+            let metrics = Arc::clone(&self.metrics);
 
             let prefix_clone = prefix.clone();
             tokio::spawn(async move {
-                if let Err(e) = Self::watch_prefix(client, cache, registry, prefix).await {
+                if let Err(e) = Self::watch_prefix(client, cache, registry, metrics, prefix).await {
                     error!("Watch error for prefix {}: {}", prefix_clone, e);
                 }
             });
@@ -224,6 +237,7 @@ impl Orchestrator {
         client: Arc<EtcdClient>,
         cache: Arc<CacheManager>,
         registry: Arc<PluginRegistry>,
+        metrics: Arc<AgentMetrics>,
         prefix: String,
     ) -> Result<()> {
         let mut watcher = client.watch(&prefix).await?;
@@ -246,6 +260,9 @@ impl Orchestrator {
                                         info!("Updated cache for key: {}", key);
                                     }
 
+                                    // Increment config updates metric
+                                    metrics.increment_config_updates();
+                                    
                                     // Notify plugins
                                     if let Err(e) =
                                         registry.notify_config_change(key.as_ref(), value).await

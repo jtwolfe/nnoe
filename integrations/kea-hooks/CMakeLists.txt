@@ -15,6 +15,9 @@ find_package(PkgConfig REQUIRED)
 pkg_check_modules(LIBCURL REQUIRED libcurl)
 pkg_check_modules(JSONCPP REQUIRED jsoncpp)
 
+# OpenSSL for base64 encoding
+find_package(OpenSSL REQUIRED)
+
 # Source files
 set(SOURCES
     src/libdhcp_etcd.cpp
@@ -32,6 +35,8 @@ target_include_directories(dhcp_etcd PRIVATE
 target_link_libraries(dhcp_etcd
     ${LIBCURL_LIBRARIES}
     ${JSONCPP_LIBRARIES}
+    OpenSSL::SSL
+    OpenSSL::Crypto
 )
 
 # Install to Kea hooks directory

@@ -1,15 +1,38 @@
 ---
+- name: Check if Knot DNS is installed
+  command: which knotd
+  register: knot_installed
+  failed_when: false
+  changed_when: false
+  when: dns_enabled | default(true)
+
 - name: Install Knot DNS
   package:
-    name: knot
+    name: "{{ item }}"
     state: present
-  when: dns_enabled | default(true)
+  loop:
+    - knot
+    - knotutils
+  when: dns_enabled | default(true) and knot_installed.rc != 0
+  register: knot_packages
+
+- name: Check if Kea DHCP is installed
+  command: which kea-dhcp4
+  register: kea_installed
+  failed_when: false
+  changed_when: false
+  when: dhcp_enabled | default(true)
 
 - name: Install Kea DHCP
   package:
-    name: kea
+    name: "{{ item }}"
     state: present
-  when: dhcp_enabled | default(true)
+  loop:
+    - kea-dhcp4-server
+    - kea-dhcp4-client
+    - kea-admin
+  when: dhcp_enabled | default(true) and kea_installed.rc != 0
+  register: kea_packages
 
 - name: Create service directories
   file:
@@ -20,19 +43,58 @@
     - /etc/knot
     - /var/lib/knot/zones
     - /etc/kea
+    - /etc/dnsdist
+    - /etc/dnsdist/lua
   when: dns_enabled | default(true) or dhcp_enabled | default(true)
+  register: service_dirs
+  loop_control:
+    label: "{{ item }}"
+
+- name: Validate service directories
+  stat:
+    path: "{{ item }}"
+  register: dir_validation
+  loop:
+    - /etc/knot
+    - /var/lib/knot/zones
+    - /etc/kea
+  failed_when: dir_validation.results | selectattr('stat.exists') | list | length != dir_validation.results | length
+  changed_when: false
 
 - name: Enable and start Knot DNS
   systemd:
     name: knot
     enabled: yes
     state: started
+    daemon_reload: yes
   when: dns_enabled | default(true)
+  register: knot_service_status
+
+- name: Validate Knot DNS is running
+  command: systemctl is-active knot
+  register: knot_active
+  failed_when: knot_active.stdout != "active"
+  changed_when: false
+  when: dns_enabled | default(true) and knot_service_status.status.ActiveState == "active"
 
 - name: Enable and start Kea DHCP
   systemd:
-    name: kea-dhcp4
+    name: kea-dhcp4-server
     enabled: yes
     state: started
+    daemon_reload: yes
   when: dhcp_enabled | default(true)
+  register: kea_service_status
+
+- name: Validate Kea DHCP is running
+  command: systemctl is-active kea-dhcp4-server
+  register: kea_active
+  failed_when: kea_active.stdout != "active"
+  changed_when: false
+  when: dhcp_enabled | default(true) and kea_service_status.status.ActiveState == "active"
+
+- name: Display services status
+  debug:
+    msg: "DNS (Knot): {{ knot_active.stdout | default('not checked') }}, DHCP (Kea): {{ kea_active.stdout | default('not checked') }}"
+  when: dns_enabled | default(true) or dhcp_enabled | default(true)
 

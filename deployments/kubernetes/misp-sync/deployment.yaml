@@ -1,0 +1,82 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: misp-sync
+  namespace: nnoe
+  labels:
+    app: misp-sync
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: misp-sync
+  template:
+    metadata:
+      labels:
+        app: misp-sync
+    spec:
+      containers:
+      - name: misp-sync
+        image: ghcr.io/nnoe/misp-sync:latest
+        imagePullPolicy: Always
+        env:
+        - name: MISP_URL
+          valueFrom:
+            secretKeyRef:
+              name: misp-credentials
+              key: url
+              optional: true
+        - name: MISP_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: misp-credentials
+              key: api-key
+              optional: true
+        - name: MISP_URL_2
+          valueFrom:
+            secretKeyRef:
+              name: misp-credentials
+              key: url-2
+              optional: true
+        - name: MISP_API_KEY_2
+          valueFrom:
+            secretKeyRef:
+              name: misp-credentials
+              key: api-key-2
+              optional: true
+        - name: ETCD_ENDPOINTS
+          value: "http://etcd.nnoe.svc.cluster.local:2379"
+        - name: ETCD_PREFIX
+          value: "/nnoe"
+        - name: SYNC_INTERVAL_SECS
+          value: "3600"
+        - name: RUST_LOG
+          value: "misp_sync=info"
+        resources:
+          requests:
+            memory: "128Mi"
+            cpu: "100m"
+          limits:
+            memory: "256Mi"
+            cpu: "200m"
+        livenessProbe:
+          exec:
+            command:
+            - /bin/sh
+            - -c
+            - "pgrep -f misp-sync || exit 1"
+          initialDelaySeconds: 30
+          periodSeconds: 60
+          timeoutSeconds: 5
+          failureThreshold: 3
+        readinessProbe:
+          exec:
+            command:
+            - /bin/sh
+            - -c
+            - "pgrep -f misp-sync || exit 1"
+          initialDelaySeconds: 10
+          periodSeconds: 30
+          timeoutSeconds: 5
+          failureThreshold: 3
+

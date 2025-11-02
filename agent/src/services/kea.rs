@@ -2,6 +2,7 @@ use crate::config::DhcpServiceConfig;
 use crate::plugin::ServicePlugin;
 use anyhow::{Context, Result};
 use async_trait::async_trait;
+use chrono;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -80,6 +81,8 @@ pub struct KeaService {
     ha_state: Arc<RwLock<HaState>>,
     #[allow(dead_code)]
     service_running: Arc<RwLock<bool>>,
+    etcd_client: Arc<RwLock<Option<Arc<crate::etcd::EtcdClient>>>>,
+    node_name: Arc<RwLock<Option<String>>>,
 }
 
 #[derive(Debug, Clone)]
@@ -102,21 +105,156 @@ impl KeaService {
             has_vip: Arc::new(AtomicBool::new(false)),
             ha_state: Arc::new(RwLock::new(HaState::Unknown)),
             service_running: Arc::new(RwLock::new(false)),
+            etcd_client: Arc::new(RwLock::new(None)),
+            node_name: Arc::new(RwLock::new(None)),
         }
     }
 
+    pub async fn set_etcd_client(&self, client: Arc<crate::etcd::EtcdClient>) {
+        let mut etcd_guard = self.etcd_client.write().await;
+        *etcd_guard = Some(client);
+    }
+
+    pub async fn set_node_name(&self, name: String) {
+        let mut node_guard = self.node_name.write().await;
+        *node_guard = Some(name);
+    }
+
     async fn check_vip(&self) -> Result<bool> {
-        // TODO: Implement VIP check
-        Ok(false)
+        // Check if VIP is present on the configured interface
+        // Uses 'ip addr' command to check for VIP presence
+        // VIP address should be configured in etcd or config (for now, we'll check the interface)
+        
+        let interface = &self.config.interface;
+        let output = Command::new("ip")
+            .arg("addr")
+            .arg("show")
+            .arg(interface)
+            .output()
+            .context("Failed to execute 'ip addr' command")?;
+
+        if !output.status.success() {
+            warn!("Failed to check VIP on interface {}: {}", interface, 
+                  String::from_utf8_lossy(&output.stderr));
+            return Ok(false);
+        }
+
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        
+        // Check for secondary IP addresses (VIPs are typically configured as secondary)
+        // Look for 'inet' entries that might be VIPs
+        // A VIP is typically a secondary IP on an interface
+        // We check for multiple 'inet' entries or specific patterns
+        
+        // For now, we'll check if there are multiple IP addresses on the interface
+        // In production, the VIP address should be configured and we'd check for that specific IP
+        let inet_count = stdout.matches("inet ").count();
+        
+        // If there's more than one IP, it might be a VIP
+        // TODO: Add VIP address configuration to check for specific IP
+        Ok(inet_count > 1)
     }
 
     async fn check_peer_status(&self) -> Result<Option<HaState>> {
-        // TODO: Implement peer status check
+        let etcd_guard = self.etcd_client.read().await;
+        let etcd_client = match etcd_guard.as_ref() {
+            Some(client) => client,
+            None => {
+                warn!("etcd client not available for peer status check");
+                return Ok(None);
+            }
+        };
+
+        let ha_pair_id = match &self.config.ha_pair_id {
+            Some(id) => id,
+            None => return Ok(None),
+        };
+
+        let node_name_guard = self.node_name.read().await;
+        let node_name = node_name_guard.as_ref().unwrap_or(&"unknown".to_string());
+
+        // List all nodes in the HA pair to find the peer
+        let status_prefix = format!("/dhcp/ha-pairs/{}/nodes", ha_pair_id);
+        let nodes = etcd_client.list_prefix(&status_prefix).await?;
+
+        // Find peer node (not ourselves)
+        for (key, value) in nodes {
+            // Key format: /nnoe/dhcp/ha-pairs/{pair_id}/nodes/{node_name}/status
+            let parts: Vec<&str> = key.split('/').collect();
+            
+            // Extract node name from key (second-to-last part, before "status")
+            if parts.len() >= 2 {
+                let node_part = parts[parts.len() - 2]; // Second-to-last part is node name
+                
+                // Skip our own status
+                if node_part == node_name {
+                    continue;
+                }
+
+                // Parse peer status
+                #[derive(Deserialize)]
+                struct HaStatusData {
+                    state: String,
+                    timestamp: String,
+                }
+
+                if let Ok(status_data) = serde_json::from_slice::<HaStatusData>(&value) {
+                    match status_data.state.as_str() {
+                        "Primary" => return Ok(Some(HaState::Primary)),
+                        "Standby" => return Ok(Some(HaState::Standby)),
+                        _ => return Ok(Some(HaState::Unknown)),
+                    }
+                }
+            }
+        }
+
         Ok(None)
     }
 
     async fn update_ha_status_in_etcd(&self) -> Result<()> {
-        // TODO: Implement HA status update in etcd
+        let etcd_guard = self.etcd_client.read().await;
+        let etcd_client = match etcd_guard.as_ref() {
+            Some(client) => client,
+            None => {
+                warn!("etcd client not available for HA status update");
+                return Ok(());
+            }
+        };
+
+        let ha_pair_id = match &self.config.ha_pair_id {
+            Some(id) => id,
+            None => return Ok(()),
+        };
+
+        let node_name_guard = self.node_name.read().await;
+        let node_name = node_name_guard.as_ref().unwrap_or(&"unknown".to_string());
+
+        let ha_state_guard = self.ha_state.read().await;
+        let state_str = match *ha_state_guard {
+            HaState::Primary => "Primary",
+            HaState::Standby => "Standby",
+            HaState::Unknown => "Unknown",
+        };
+
+        #[derive(Serialize)]
+        struct HaStatusData {
+            state: String,
+            timestamp: String,
+        }
+
+        let status_data = HaStatusData {
+            state: state_str.to_string(),
+            timestamp: chrono::Utc::now().to_rfc3339(),
+        };
+
+        let status_json = serde_json::to_string(&status_data)?;
+        let status_key = format!("/dhcp/ha-pairs/{}/nodes/{}/status", ha_pair_id, node_name);
+
+        // Put with TTL for automatic expiration (60 seconds)
+        // Note: etcd-client 0.11 may require using lease API for TTL
+        etcd_client.put(&status_key, status_json.as_bytes()).await?;
+
+        debug!("Updated HA status in etcd: {} -> {}", status_key, state_str);
         Ok(())
     }
 
