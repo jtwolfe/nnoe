@@ -310,7 +310,7 @@ impl DnsdistService {
             condition: Option<PolicyCondition>,
         }
 
-        #[derive(Debug, Deserialize)]
+        #[derive(Debug, Deserialize, Serialize)]
         struct PolicyCondition {
             #[serde(rename = "match")]
             match_expr: Option<MatchExpr>,

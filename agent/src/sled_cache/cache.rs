@@ -323,7 +323,7 @@ impl CacheManager {
         let entry_count = self.db.len();
 
         CacheStats {
-            size_bytes,
+            size_bytes: size_bytes.try_into().unwrap_or(0),
             entry_count,
             max_size_bytes: self.config.max_size_mb * 1024 * 1024,
             ttl_secs: self.config.default_ttl_secs,

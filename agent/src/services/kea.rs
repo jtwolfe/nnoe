@@ -174,7 +174,8 @@ impl KeaService {
         };
 
         let node_name_guard = self.node_name.read().await;
-        let node_name = node_name_guard.as_ref().unwrap_or(&"unknown".to_string());
+        let unknown_str = "unknown".to_string();
+        let node_name = node_name_guard.as_ref().unwrap_or(&unknown_str);
 
         // List all nodes in the HA pair to find the peer
         let status_prefix = format!("/dhcp/ha-pairs/{}/nodes", ha_pair_id);
@@ -230,7 +231,8 @@ impl KeaService {
         };
 
         let node_name_guard = self.node_name.read().await;
-        let node_name = node_name_guard.as_ref().unwrap_or(&"unknown".to_string());
+        let unknown_str = "unknown".to_string();
+        let node_name = node_name_guard.as_ref().unwrap_or(&unknown_str);
 
         let ha_state_guard = self.ha_state.read().await;
         let state_str = match *ha_state_guard {

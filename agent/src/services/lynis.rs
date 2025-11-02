@@ -39,7 +39,7 @@ struct LynisSection {
     items: Vec<LynisItem>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 struct LynisItem {
     plugin: String,
     option: String,

@@ -130,8 +130,8 @@ impl NebulaManager {
         // For synchronous check, we verify via runtime handle if available
         if let Ok(handle) = tokio::runtime::Handle::try_current() {
             // Check if process exists in the guard
-            if let Ok(process_guard) = handle.block_on(async { self.process.read().await }) {
-                if let Some(child) = process_guard.as_ref() {
+            let process_guard = handle.block_on(async { self.process.read().await });
+            if let Some(child) = process_guard.as_ref() {
                     let pid = child.id();
 
                     // Check if process exists by attempting signal 0 (non-destructive check)
@@ -162,9 +162,9 @@ impl NebulaManager {
 
     /// Check if Nebula process is responsive by sending signal 0
     pub async fn check_process_health(&self) -> bool {
-        let process_guard = self.process.read().await;
+        let mut process_guard = self.process.write().await;
 
-        if let Some(child) = process_guard.as_ref() {
+        if let Some(child) = process_guard.as_mut() {
             let pid = child.id();
 
             // Check if process is still running via try_wait (non-blocking)

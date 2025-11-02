@@ -345,12 +345,12 @@ impl KnotService {
 
                     warn!("Knot reload command failed: {} / {}", stderr, stdout);
                     // Fallback to systemctl restart for runtime errors
-                    self.restart_knot().await
+                    Box::pin(self.restart_knot()).await
                 }
             }
             Err(e) => {
                 warn!("knotc not available ({}), using systemctl", e);
-                self.restart_knot().await
+                Box::pin(self.restart_knot()).await
             }
         }
     }
@@ -398,7 +398,7 @@ impl KnotService {
             // Check for common issues
             if stderr.contains("already loaded") || stdout.contains("already loaded") {
                 // Try reload instead
-                return self.reload_knot().await;
+                return Box::pin(self.reload_knot()).await;
             }
 
             return Err(anyhow::anyhow!(

@@ -3,8 +3,7 @@ use anyhow::{Context, Result};
 use etcd_client::{Client, ConnectOptions, WatchOptions};
 use std::fs;
 use std::sync::Arc;
-use tokio_stream::StreamExt;
-use tracing::{debug, info, warn};
+use tracing::{debug, info};
 
 pub struct EtcdClient {
     client: Client,
@@ -55,7 +54,7 @@ impl EtcdClient {
             let mut root_cert_store = rustls::RootCertStore::empty();
             for cert in ca_certs {
                 root_cert_store
-                    .add(cert)
+                    .add(&rustls::Certificate(cert))
                     .context("Failed to add CA certificate to trust store")?;
             }
 
@@ -73,7 +72,7 @@ impl EtcdClient {
             // Apply TLS configuration to ConnectOptions
             // etcd-client 0.11 uses tonic for gRPC, which accepts rustls::ClientConfig
             // Wrapped in Arc for shared ownership across connections
-            connect_options = connect_options.with_tls_config(Arc::new(rustls_config));
+            connect_options = connect_options.with_tls(Arc::new(rustls_config));
             info!("TLS configuration applied to etcd client");
         }
 
