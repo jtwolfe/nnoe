@@ -6,7 +6,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::RwLock;
 use tonic::transport::Channel;
-use tracing::{debug, error, info, warn};
+use tracing::{info, warn};
 
 mod cerbos {
     tonic::include_proto!("cerbos.svc.v1");
@@ -40,9 +40,9 @@ impl CerbosService {
         principal_id: &str,
         principal_roles: Vec<String>,
     ) -> Result<bool> {
-        let client_guard = self.client.read().await;
+        let mut client_guard = self.client.write().await;
         let client = client_guard
-            .as_ref()
+            .as_mut()
             .ok_or_else(|| anyhow::anyhow!("Cerbos client not initialized"))?;
 
         let request = tonic::Request::new(CheckResourcesRequest {

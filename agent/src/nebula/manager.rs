@@ -143,28 +143,29 @@ impl NebulaManager {
                         is_running_flag.store(false, Ordering::Release);
 
                         // Check restart count
-                        let should_restart = {
+                        let (should_restart, current_count) = {
                             let mut count = restart_count.lock().unwrap();
                             if *count < max_restarts {
                                 *count += 1;
                                 let current_count = *count;
-                                warn!(
-                                    "Restarting Nebula (attempt {}/{})",
-                                    current_count, max_restarts
-                                );
                                 drop(count); // Drop guard before await
-                                drop(process_guard);
-
-                                // Exponential backoff
-                                let delay = std::cmp::min(2u64.pow(current_count as u32), 60);
-                                tokio::time::sleep(tokio::time::Duration::from_secs(delay)).await;
-                                true
+                                (true, current_count)
                             } else {
-                                false
+                                (false, 0)
                             }
                         };
 
                         if should_restart {
+                            warn!(
+                                "Restarting Nebula (attempt {}/{})",
+                                current_count, max_restarts
+                            );
+                            drop(process_guard);
+
+                            // Exponential backoff
+                            let delay = std::cmp::min(2u64.pow(current_count as u32), 60);
+                            tokio::time::sleep(tokio::time::Duration::from_secs(delay)).await;
+
                             // Attempt restart
                             if let Some(ref config_path) = config.config_path {
                                 match Self::attempt_restart(config_path).await {
@@ -174,7 +175,7 @@ impl NebulaManager {
                                         is_running_flag.store(true, Ordering::Release);
                                         {
                                             let mut count = restart_count.lock().unwrap();
-                                        *count = 0; // Reset on successful restart
+                                            *count = 0; // Reset on successful restart
                                         }
                                         info!("Nebula process restarted successfully");
                                     }
@@ -226,13 +227,12 @@ impl Drop for NebulaManager {
             warn!("NebulaManager being dropped while process is running");
             // Attempt to kill the process using a blocking runtime handle
             if let Ok(handle) = tokio::runtime::Handle::try_current() {
-                if let Ok(guard) = handle.block_on(async { self.process.write().await }) {
-                    if let Some(mut child) = guard.as_ref() {
-                        let _ = std::process::Command::new("kill")
-                            .arg("-TERM")
-                            .arg(child.id().to_string())
-                            .output();
-                    }
+                let guard = handle.block_on(async { self.process.write().await });
+                if let Some(mut child) = guard.as_ref() {
+                    let _ = std::process::Command::new("kill")
+                        .arg("-TERM")
+                        .arg(child.id().to_string())
+                        .output();
                 }
             }
         }

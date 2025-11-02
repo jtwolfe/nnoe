@@ -4,7 +4,7 @@ use etcd_client::{Client, ConnectOptions, WatchOptions};
 use std::fs;
 use std::sync::Arc;
 use tokio_stream::StreamExt;
-use tracing::{debug, error, info, warn};
+use tracing::{debug, info};
 
 pub struct EtcdClient {
     client: Client,
@@ -28,17 +28,17 @@ impl EtcdClient {
             let ca_cert_data = fs::read_to_string(&tls_config.ca_cert).with_context(|| {
                 format!("Failed to read CA certificate from {}", tls_config.ca_cert)
             })?;
-            let ca_certs = rustls_pemfile::certs(&mut ca_cert_data.as_bytes())
-                .collect::<Result<Vec<_>, _>>()
-                .context("Failed to parse CA certificate")?;
+            let mut ca_cert_reader = ca_cert_data.as_bytes();
+            let ca_certs: Result<Vec<_>, _> = rustls_pemfile::certs(&mut ca_cert_reader).collect();
+            let ca_certs = ca_certs.context("Failed to parse CA certificate")?;
 
             // Load client certificate
             let client_cert_data = fs::read_to_string(&tls_config.cert).with_context(|| {
                 format!("Failed to read client certificate from {}", tls_config.cert)
             })?;
-            let client_certs = rustls_pemfile::certs(&mut client_cert_data.as_bytes())
-                .collect::<Result<Vec<_>, _>>()
-                .context("Failed to parse client certificate")?;
+            let mut client_cert_reader = client_cert_data.as_bytes();
+            let client_certs: Result<Vec<_>, _> = rustls_pemfile::certs(&mut client_cert_reader).collect();
+            let client_certs = client_certs.context("Failed to parse client certificate")?;
 
             // Load client private key
             let client_key_data = fs::read_to_string(&tls_config.key)
@@ -70,8 +70,8 @@ impl EtcdClient {
                 .map_err(|e| anyhow::anyhow!("Failed to build TLS config: {}", e))?;
 
             // etcd-client accepts rustls ClientConfig through ConnectOptions
-            // The exact method may vary by etcd-client version, but this pattern should work
-            // If compilation fails, check etcd-client docs for the correct TLS configuration method
+            // The exact method may vary by etcd-client version
+            // Try with_tls_config which returns a new ConnectOptions
             connect_options = connect_options.with_tls_config(tls_config);
             info!("TLS configuration applied successfully");
         }

@@ -142,7 +142,7 @@ impl KeaService {
                             .dns_servers
                             .iter()
                             .map(|dns| KeaOption {
-                                    name: "domain-name-servers".to_string(),
+                                name: "domain-name-servers".to_string(),
                                 data: dns.clone(),
                             })
                             .collect(),
@@ -360,10 +360,12 @@ impl KeaService {
 
         let options: HashMap<String, String> = scope_json["options"]
             .as_object()
-            .unwrap_or(&std::collections::HashMap::new())
-            .iter()
-            .map(|(k, v)| (k.clone(), v.as_str().unwrap_or("").to_string()))
-            .collect();
+            .map(|obj| {
+                obj.iter()
+                    .map(|(k, v)| (k.clone(), v.as_str().unwrap_or("").to_string()))
+                    .collect()
+            })
+            .unwrap_or_default();
 
         Ok(KeaScopeData {
             subnet,

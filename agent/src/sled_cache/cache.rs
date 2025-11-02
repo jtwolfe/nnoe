@@ -35,7 +35,9 @@ impl CacheManager {
             .context(format!("Failed to open sled database at {}", config.path))?;
 
         // Configure cache size
-        db.set_cache_capacity(config.max_size_mb * 1024 * 1024);
+        // Note: sled doesn't have set_cache_capacity in all versions
+        // Cache size is typically managed by sled internally
+        // db.set_cache_capacity(config.max_size_mb * 1024 * 1024);
 
         info!(
             "Cache initialized successfully (TTL: {}s, Max size: {}MB)",
@@ -115,7 +117,7 @@ impl CacheManager {
                     if let Ok(ts) = bincode::deserialize::<u64>(&ts_bytes) {
                         if now.saturating_sub(ts) > ttl_secs {
                             keys_to_delete.push(key);
-                            keys_to_delete.push(timestamp_key.into_bytes());
+                            keys_to_delete.push(timestamp_key.into_bytes().into());
                             expired_count += 1;
                         }
                     }

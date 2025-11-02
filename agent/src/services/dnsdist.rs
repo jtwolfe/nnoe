@@ -2,7 +2,7 @@ use crate::config::DnsdistServiceConfig;
 use crate::plugin::ServicePlugin;
 use anyhow::{Context, Result};
 use async_trait::async_trait;
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::process::Command;
@@ -270,7 +270,10 @@ impl DnsdistService {
                     continue; // Skip deny rules for now, or handle them differently
                 }
 
-                let lua_code = self.cerbos_rule_to_lua(rule, policy_id, idx)?;
+                // Convert PolicyRule to serde_json::Value for cerbos_rule_to_lua
+                let rule_value = serde_json::to_value(rule)
+                    .context("Failed to serialize PolicyRule")?;
+                let lua_code = self.cerbos_rule_to_lua(&rule_value, policy_id, idx)?;
 
                 rules.push(DnsdistRule {
                     name: format!("cerbos_{}_{}", policy_id, idx),

@@ -57,7 +57,7 @@ impl LynisService {
         }
     }
 
-    async fn set_etcd_client(&self, client: Arc<crate::etcd::EtcdClient>) {
+    pub async fn set_etcd_client(&self, client: Arc<crate::etcd::EtcdClient>) {
         let mut etcd_guard = self.etcd_client.write().await;
         *etcd_guard = Some(client);
     }
@@ -171,15 +171,21 @@ impl LynisService {
                         // Upload to etcd if available
                         let etcd_guard = etcd_client.read().await;
                         if let Some(ref client) = *etcd_guard {
-                            if let Err(e) = {
-                                let report_json = serde_json::to_string(&report)
-                                    .context("Failed to serialize report")?;
-                                let key = format!("/nnoe/audit/lynis/{}", report.node);
-                                client.put(&key, report_json.as_bytes()).await?;
-                                info!("Uploaded Lynis report to etcd: {}", key);
-                                Ok::<(), anyhow::Error>(())
-                            } {
-                                error!("Failed to upload Lynis report: {}", e);
+                            match serde_json::to_string(&report) {
+                                Ok(report_json) => {
+                                    let key = format!("/nnoe/audit/lynis/{}", report.node);
+                                    match client.put(&key, report_json.as_bytes()).await {
+                                        Ok(_) => {
+                                            info!("Uploaded Lynis report to etcd: {}", key);
+                                        }
+                                        Err(e) => {
+                                            error!("Failed to upload Lynis report: {}", e);
+                                        }
+                                    }
+                                }
+                                Err(e) => {
+                                    error!("Failed to serialize report: {}", e);
+                                }
                             }
                         }
                         drop(etcd_guard);

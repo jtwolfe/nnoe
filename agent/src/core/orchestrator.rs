@@ -7,6 +7,7 @@ use crate::sled_cache::CacheManager;
 use anyhow::{Context, Result};
 use std::sync::Arc;
 use tokio::sync::RwLock;
+use tokio_stream::StreamExt;
 use tracing::{error, info, warn};
 
 pub struct Orchestrator {
@@ -208,9 +209,10 @@ impl Orchestrator {
             let cache = Arc::clone(&self.cache_manager);
             let registry = Arc::clone(&self.plugin_registry);
 
+            let prefix_clone = prefix.clone();
             tokio::spawn(async move {
                 if let Err(e) = Self::watch_prefix(client, cache, registry, prefix).await {
-                    error!("Watch error for prefix {}: {}", prefix, e);
+                    error!("Watch error for prefix {}: {}", prefix_clone, e);
                 }
             });
         }
