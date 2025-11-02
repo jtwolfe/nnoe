@@ -148,7 +148,10 @@ impl NebulaManager {
                             if *count < max_restarts {
                                 *count += 1;
                                 let current_count = *count;
-                                warn!("Restarting Nebula (attempt {}/{})", current_count, max_restarts);
+                                warn!(
+                                    "Restarting Nebula (attempt {}/{})",
+                                    current_count, max_restarts
+                                );
                                 drop(count); // Drop guard before await
                                 drop(process_guard);
 
@@ -171,7 +174,7 @@ impl NebulaManager {
                                         is_running_flag.store(true, Ordering::Release);
                                         {
                                             let mut count = restart_count.lock().unwrap();
-                                            *count = 0; // Reset on successful restart
+                                        *count = 0; // Reset on successful restart
                                         }
                                         info!("Nebula process restarted successfully");
                                     }

@@ -142,7 +142,7 @@ impl KeaService {
                             .dns_servers
                             .iter()
                             .map(|dns| KeaOption {
-                                name: "domain-name-servers".to_string(),
+                                    name: "domain-name-servers".to_string(),
                                 data: dns.clone(),
                             })
                             .collect(),
@@ -152,11 +152,13 @@ impl KeaService {
             },
         };
 
-        let config_json = serde_json::to_string_pretty(&kea_config)
-            .context("Failed to serialize Kea config")?;
+        let config_json =
+            serde_json::to_string_pretty(&kea_config).context("Failed to serialize Kea config")?;
 
-        std::fs::write(&self.config_path, config_json)
-            .context(format!("Failed to write Kea config to {}", self.config_path.display()))?;
+        std::fs::write(&self.config_path, config_json).context(format!(
+            "Failed to write Kea config to {}",
+            self.config_path.display()
+        ))?;
 
         Ok(())
     }
@@ -327,15 +329,17 @@ impl KeaService {
     }
 
     async fn parse_scope_from_etcd(&self, scope_id: &str, value: &[u8]) -> Result<KeaScopeData> {
-        let scope_json: serde_json::Value = serde_json::from_slice(value)
-            .context("Failed to parse scope JSON from etcd")?;
+        let scope_json: serde_json::Value =
+            serde_json::from_slice(value).context("Failed to parse scope JSON from etcd")?;
 
         let subnet = scope_json["subnet"]
             .as_str()
             .context("Missing subnet in scope data")?
             .to_string();
 
-        let pool = scope_json["pool"].as_object().context("Missing pool in scope data")?;
+        let pool = scope_json["pool"]
+            .as_object()
+            .context("Missing pool in scope data")?;
         let pool_start = pool["start"]
             .as_str()
             .context("Missing pool start")?

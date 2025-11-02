@@ -33,7 +33,11 @@ jobs:
         sudo apt-get install -y musl-tools musl-dev
         if [ "${{ matrix.target }}" = "aarch64-unknown-linux-musl" ]; then
           # Install musl cross-compiler for aarch64
-          wget -q https://musl.cc/aarch64-linux-musl-cross.tgz
+          wget --timeout=30 --tries=3 --retry-connrefused -q https://musl.cc/aarch64-linux-musl-cross.tgz || {
+            echo "Failed to download cross-compiler, retrying..."
+            sleep 5
+            wget --timeout=60 --tries=2 -q https://musl.cc/aarch64-linux-musl-cross.tgz
+          }
           sudo tar -xzf aarch64-linux-musl-cross.tgz -C /usr/local --strip-components=1
           rm aarch64-linux-musl-cross.tgz
           # Verify installation
