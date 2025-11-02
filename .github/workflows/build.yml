@@ -34,10 +34,11 @@ jobs:
     
     - name: Install protobuf compiler
       run: |
+        sudo apt-get update
         sudo apt-get install -y protobuf-compiler libprotobuf-dev
     
     - name: Cache cargo registry
-      uses: actions/cache@v3
+      uses: actions/cache@v4
       with:
         path: |
           ~/.cargo/registry
@@ -54,7 +55,7 @@ jobs:
         cargo build --package nnoe-misp-sync --release --target ${{ matrix.target }}
     
     - name: Upload artifacts
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: binaries-${{ matrix.target }}
         path: |

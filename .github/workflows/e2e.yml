@@ -26,14 +26,15 @@ jobs:
     # No need to install separately
     
     - name: Start test environment
+      working-directory: testing/integration/e2e
       run: |
-        cd testing/integration/e2e
         docker compose up -d
     
     - name: Wait for services
+      working-directory: testing/integration/e2e
       run: |
         sleep 10
-        docker compose -f testing/integration/e2e/docker-compose.yml ps
+        docker compose ps
     
     - name: Run E2E tests
       run: |
@@ -41,10 +42,12 @@ jobs:
     
     - name: Collect logs on failure
       if: failure()
+      working-directory: testing/integration/e2e
       run: |
-        docker compose -f testing/integration/e2e/docker-compose.yml logs
+        docker compose logs
     
     - name: Cleanup
       if: always()
+      working-directory: testing/integration/e2e
       run: |
-        docker compose -f testing/integration/e2e/docker-compose.yml down -v
+        docker compose down -v

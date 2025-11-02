@@ -58,6 +58,10 @@ path = "tests/etcd_test.rs"
 name = "services_test"
 path = "tests/services_test.rs"
 
+[[test]]
+name = "e2e_tests"
+path = "../testing/integration/e2e/e2e_tests.rs"
+
 [lib]
 name = "nnoe_agent"
 path = "src/lib.rs"
