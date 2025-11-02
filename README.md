@@ -19,6 +19,10 @@ The New Network Orchestration Engine (NNOE) is an open-source, distributed DDI (
 ### Prerequisites
 
 - Rust 1.70+ (for building the agent)
+- Protocol Buffers compiler (protoc) - required for building protobuf files
+  - Ubuntu/Debian: `sudo apt-get install protobuf-compiler libprotobuf-dev`
+  - macOS: `brew install protobuf`
+  - Other platforms: See [protobuf installation guide](https://grpc.io/docs/protoc-installation/)
 - Docker & Docker Compose (for containerized deployments)
 - etcd cluster (for production) or standalone (for development)
 
