@@ -33,15 +33,31 @@ jobs:
         sudo apt-get install -y musl-tools musl-dev
         if [ "${{ matrix.target }}" = "aarch64-unknown-linux-musl" ]; then
           # Install musl cross-compiler for aarch64
-          wget --timeout=30 --tries=3 --retry-connrefused -q https://musl.cc/aarch64-linux-musl-cross.tgz || {
-            echo "Failed to download cross-compiler, retrying..."
-            sleep 5
-            wget --timeout=60 --tries=2 -q https://musl.cc/aarch64-linux-musl-cross.tgz
-          }
+          # Use curl with retries as it's more reliable than wget for large files
+          echo "Downloading aarch64 musl cross-compiler..."
+          for i in 1 2 3; do
+            if curl -L --fail --max-time 300 --retry 3 --retry-delay 5 \
+              -o aarch64-linux-musl-cross.tgz \
+              https://musl.cc/aarch64-linux-musl-cross.tgz; then
+              echo "Download successful on attempt $i"
+              break
+            else
+              echo "Download failed on attempt $i, retrying..."
+              sleep 10
+            fi
+          done
+          if [ ! -f aarch64-linux-musl-cross.tgz ]; then
+            echo "Error: Failed to download cross-compiler after 3 attempts"
+            exit 1
+          fi
           sudo tar -xzf aarch64-linux-musl-cross.tgz -C /usr/local --strip-components=1
           rm aarch64-linux-musl-cross.tgz
           # Verify installation
-          /usr/local/bin/aarch64-linux-musl-gcc --version || echo "Compiler installation failed"
+          /usr/local/bin/aarch64-linux-musl-gcc --version || {
+            echo "Compiler installation verification failed"
+            exit 1
+          }
+          echo "Cross-compiler installed successfully"
         fi
     
     - name: Install protobuf compiler

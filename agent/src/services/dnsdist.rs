@@ -271,8 +271,8 @@ impl DnsdistService {
                 }
 
                 // Convert PolicyRule to serde_json::Value for cerbos_rule_to_lua
-                let rule_value = serde_json::to_value(rule)
-                    .context("Failed to serialize PolicyRule")?;
+                let rule_value =
+                    serde_json::to_value(rule).context("Failed to serialize PolicyRule")?;
                 let lua_code = self.cerbos_rule_to_lua(&rule_value, policy_id, idx)?;
 
                 rules.push(DnsdistRule {

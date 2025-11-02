@@ -37,7 +37,8 @@ impl EtcdClient {
                 format!("Failed to read client certificate from {}", tls_config.cert)
             })?;
             let mut client_cert_reader = client_cert_data.as_bytes();
-            let client_certs: Result<Vec<_>, _> = rustls_pemfile::certs(&mut client_cert_reader).collect();
+            let client_certs: Result<Vec<_>, _> =
+                rustls_pemfile::certs(&mut client_cert_reader).collect();
             let client_certs = client_certs.context("Failed to parse client certificate")?;
 
             // Load client private key

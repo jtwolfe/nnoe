@@ -44,18 +44,30 @@ impl CacheManager {
             config.default_ttl_secs, config.max_size_mb
         );
 
-        let manager = Self {
-            db: Arc::new(db),
-            config: config.clone(),
-            sweep_handle: Arc::new(RwLock::new(None)),
-        };
+        let db = Arc::new(db);
+        let sweep_handle = Arc::new(RwLock::new(None));
 
         // Start background sweep task - spawn in runtime if available
         if let Ok(handle) = tokio::runtime::Handle::try_current() {
-            handle.spawn(async {
-                manager.start_sweep_task_internal();
+            let db_clone = Arc::clone(&db);
+            let config_clone = config.clone();
+            let sweep_handle_clone = Arc::clone(&sweep_handle);
+            handle.spawn(async move {
+                // Create a temporary manager just for starting the sweep task
+                let temp_manager = Self {
+                    db: db_clone,
+                    config: config_clone,
+                    sweep_handle: sweep_handle_clone,
+                };
+                temp_manager.start_sweep_task_internal();
             });
         }
+
+        let manager = Self {
+            db,
+            config: config.clone(),
+            sweep_handle,
+        };
 
         Ok(manager)
     }
