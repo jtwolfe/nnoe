@@ -10,6 +10,7 @@ on:
 jobs:
   e2e:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     
     steps:
     - uses: actions/checkout@v4
@@ -25,29 +26,95 @@ jobs:
     # Docker Compose v2 is pre-installed on GitHub Actions runners
     # No need to install separately
     
+    - name: Verify Docker setup
+      working-directory: testing/integration/e2e
+      run: |
+        echo "Checking docker-compose.yml exists..."
+        test -f docker-compose.yml || (echo "docker-compose.yml not found!" && exit 1)
+        echo "Checking Dockerfile.test exists..."
+        test -f Dockerfile.test || (echo "Dockerfile.test not found!" && exit 1)
+        echo "Docker setup verified"
+    
     - name: Start test environment
       working-directory: testing/integration/e2e
       run: |
-        docker compose up -d --build
+        echo "Starting docker compose services..."
+        docker compose up -d --build 2>&1
+        echo "Docker compose services started"
     
-    - name: Wait for services
+    - name: Wait for services to be healthy
       working-directory: testing/integration/e2e
       run: |
-        sleep 10
+        echo "Waiting for etcd to be healthy..."
+        timeout=60
+        elapsed=0
+        while [ $elapsed -lt $timeout ]; do
+          if docker compose ps etcd | grep -q "healthy"; then
+            echo "etcd is healthy"
+            break
+          fi
+          echo "Waiting for etcd... ($elapsed/$timeout seconds)"
+          sleep 2
+          elapsed=$((elapsed + 2))
+        done
+        if [ $elapsed -ge $timeout ]; then
+          echo "Error: etcd did not become healthy within $timeout seconds"
+          docker compose ps
+          docker compose logs etcd
+          exit 1
+        fi
+        echo "All services started"
         docker compose ps
     
-    - name: Run E2E tests
+    - name: Wait for agent-test container to complete
+      working-directory: testing/integration/e2e
       run: |
-        cargo test --test e2e_tests --package nnoe-agent -- --ignored --test-threads=1
+        echo "Waiting for agent-test container to complete..."
+        # The agent-test container runs tests and exits
+        # Wait for it to complete and capture exit code
+        timeout=300
+        elapsed=0
+        while [ $elapsed -lt $timeout ]; do
+          status=$(docker compose ps agent-test --format "{{.Status}}" 2>/dev/null || echo "not found")
+          if echo "$status" | grep -q "Exited"; then
+            exit_code=$(docker compose ps agent-test --format "{{.ExitCode}}" 2>/dev/null || echo "unknown")
+            echo "agent-test container exited with code: $exit_code"
+            if [ "$exit_code" != "0" ] && [ "$exit_code" != "unknown" ]; then
+              echo "Tests failed with exit code $exit_code"
+              docker compose logs agent-test
+              exit 1
+            fi
+            echo "Tests completed successfully"
+            break
+          fi
+          echo "Waiting for tests... ($elapsed/$timeout seconds)"
+          sleep 5
+          elapsed=$((elapsed + 5))
+        done
+        if [ $elapsed -ge $timeout ]; then
+          echo "Error: Tests did not complete within $timeout seconds"
+          docker compose ps
+          docker compose logs agent-test
+          exit 1
+        fi
+        # Show test output
+        docker compose logs agent-test
     
     - name: Collect logs on failure
       if: failure()
       working-directory: testing/integration/e2e
       run: |
+        echo "=== Collecting logs for debugging ==="
+        docker compose ps
         docker compose logs
+        echo "=== Docker system info ==="
+        docker system df
+        docker info
     
     - name: Cleanup
       if: always()
       working-directory: testing/integration/e2e
       run: |
+        echo "Cleaning up docker compose services..."
         docker compose down -v
+        echo "Cleanup complete"

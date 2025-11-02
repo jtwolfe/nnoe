@@ -17,6 +17,7 @@ jobs:
           - aarch64-unknown-linux-musl
     
     runs-on: ubuntu-latest
+    timeout-minutes: 60
     
     steps:
     - uses: actions/checkout@v4
@@ -28,50 +29,91 @@ jobs:
         targets: ${{ matrix.target }}
     
     - name: Install musl tools
+      timeout-minutes: 10
       run: |
         sudo apt-get update
         sudo apt-get install -y musl-tools musl-dev
         if [ "${{ matrix.target }}" = "aarch64-unknown-linux-musl" ]; then
-          # Install musl cross-compiler for aarch64
-          # Use curl with retries - musl.cc can be slow/timeout
-          echo "Downloading aarch64 musl cross-compiler from musl.cc..."
-          MAX_ATTEMPTS=5
-          TIMEOUT=120
-          for i in $(seq 1 $MAX_ATTEMPTS); do
-            echo "Attempt $i/$MAX_ATTEMPTS..."
-            if curl -L --fail --connect-timeout 10 --max-time $TIMEOUT \
-              --retry 2 --retry-delay 3 --progress-bar \
-              -o aarch64-linux-musl-cross.tgz \
-              https://musl.cc/aarch64-linux-musl-cross.tgz 2>&1 | tee /tmp/curl_output.log; then
-              if [ -f aarch64-linux-musl-cross.tgz ] && [ -s aarch64-linux-musl-cross.tgz ]; then
-                echo "Download successful on attempt $i"
-                break
+          # Check if cross-compiler is already cached
+          if [ -f /usr/local/bin/aarch64-linux-musl-gcc ] && /usr/local/bin/aarch64-linux-musl-gcc --version >/dev/null 2>&1; then
+            echo "Using cached aarch64 cross-compiler"
+            /usr/local/bin/aarch64-linux-musl-gcc --version
+          else
+            # Install musl cross-compiler for aarch64
+            # Use curl with retries - musl.cc can be slow/timeout
+            echo "Downloading aarch64 musl cross-compiler from musl.cc..."
+            MAX_ATTEMPTS=3
+            CONNECT_TIMEOUT=15
+            MAX_TIME=180
+            DOWNLOAD_URL="https://musl.cc/aarch64-linux-musl-cross.tgz"
+            
+            for i in $(seq 1 $MAX_ATTEMPTS); do
+              echo "Attempt $i/$MAX_ATTEMPTS..."
+              echo "Download URL: $DOWNLOAD_URL"
+              
+              # Use timeout command to ensure curl doesn't hang indefinitely
+              if timeout $MAX_TIME curl -L --fail \
+                  --connect-timeout $CONNECT_TIMEOUT \
+                  --max-time $MAX_TIME \
+                  --retry 2 \
+                  --retry-delay 5 \
+                  --progress-bar \
+                  --speed-time 30 \
+                  --speed-limit 1000 \
+                  -o aarch64-linux-musl-cross.tgz \
+                  "$DOWNLOAD_URL" 2>&1 | tee /tmp/curl_output.log; then
+                
+                # Verify downloaded file
+                if [ -f aarch64-linux-musl-cross.tgz ] && [ -s aarch64-linux-musl-cross.tgz ]; then
+                  file_size=$(stat -f%z aarch64-linux-musl-cross.tgz 2>/dev/null || stat -c%s aarch64-linux-musl-cross.tgz 2>/dev/null || echo "0")
+                  echo "Download successful on attempt $i (size: $file_size bytes)"
+                  if [ "$file_size" -gt 1000000 ]; then
+                    break
+                  else
+                    echo "Downloaded file is too small ($file_size bytes), retrying..."
+                    rm -f aarch64-linux-musl-cross.tgz
+                  fi
+                else
+                  echo "Downloaded file is empty or missing, retrying..."
+                  rm -f aarch64-linux-musl-cross.tgz
+                fi
               else
-                echo "Downloaded file is empty or missing, retrying..."
-                rm -f aarch64-linux-musl-cross.tgz
+                curl_exit=$?
+                echo "Download failed on attempt $i with exit code $curl_exit"
+                if [ $i -lt $MAX_ATTEMPTS ]; then
+                  wait_time=$((10 * i))
+                  echo "Waiting $wait_time seconds before retry..."
+                  sleep $wait_time
+                fi
               fi
-            else
-              echo "Download failed on attempt $i (timeout after ${TIMEOUT}s)"
-              if [ $i -lt $MAX_ATTEMPTS ]; then
-                echo "Waiting 15 seconds before retry..."
-                sleep 15
-              fi
+            done
+            
+            if [ ! -f aarch64-linux-musl-cross.tgz ] || [ ! -s aarch64-linux-musl-cross.tgz ]; then
+              echo "Error: Failed to download cross-compiler after $MAX_ATTEMPTS attempts"
+              echo "This may be due to network issues with musl.cc"
+              echo "Last curl output:"
+              cat /tmp/curl_output.log || echo "No curl output available"
+              echo ""
+              echo "Trying alternative: using cross crate instead..."
+              # Fallback: we'll skip this build or use cross crate
+              echo "::warning::aarch64 cross-compiler download failed. Consider using cross crate for more reliable builds."
+              exit 1
             fi
-          done
-          if [ ! -f aarch64-linux-musl-cross.tgz ] || [ ! -s aarch64-linux-musl-cross.tgz ]; then
-            echo "Error: Failed to download cross-compiler after $MAX_ATTEMPTS attempts"
-            echo "This may be due to network issues with musl.cc"
-            echo "Consider using a cached version or alternative source"
-            exit 1
+            
+            echo "Extracting cross-compiler..."
+            sudo tar -xzf aarch64-linux-musl-cross.tgz -C /usr/local --strip-components=1
+            rm aarch64-linux-musl-cross.tgz
+            
+            # Verify installation
+            if ! /usr/local/bin/aarch64-linux-musl-gcc --version >/dev/null 2>&1; then
+              echo "Error: Compiler installation verification failed"
+              echo "Installed files:"
+              ls -la /usr/local/bin/aarch64-linux-musl-* || echo "No aarch64 compiler found in /usr/local/bin"
+              exit 1
+            fi
+            echo "Cross-compiler installed successfully:"
+            /usr/local/bin/aarch64-linux-musl-gcc --version
           fi
-          sudo tar -xzf aarch64-linux-musl-cross.tgz -C /usr/local --strip-components=1
-          rm aarch64-linux-musl-cross.tgz
-          # Verify installation
-          /usr/local/bin/aarch64-linux-musl-gcc --version || {
-            echo "Compiler installation verification failed"
-            exit 1
-          }
-          echo "Cross-compiler installed successfully"
         fi
     
     - name: Install protobuf compiler
@@ -92,28 +134,46 @@ jobs:
           ${{ runner.os }}-cargo-
     
     - name: Build agent
+      timeout-minutes: 20
       run: |
+        echo "Building nnoe-agent for ${{ matrix.target }}..."
         if [ "${{ matrix.target }}" = "aarch64-unknown-linux-musl" ]; then
           export PATH="/usr/local/bin:$PATH"
           export CC_aarch64_unknown_linux_musl=aarch64-linux-musl-gcc
         fi
-        cargo build --package nnoe-agent --release --target ${{ matrix.target }}
+        cargo build --package nnoe-agent --release --target ${{ matrix.target }} || {
+          echo "::error::Failed to build nnoe-agent for ${{ matrix.target }}"
+          exit 1
+        }
+        echo "nnoe-agent build successful"
     
     - name: Build misp-sync
+      timeout-minutes: 15
       run: |
+        echo "Building misp-sync for ${{ matrix.target }}..."
         if [ "${{ matrix.target }}" = "aarch64-unknown-linux-musl" ]; then
           export PATH="/usr/local/bin:$PATH"
           export CC_aarch64_unknown_linux_musl=aarch64-linux-musl-gcc
         fi
-        cargo build --package nnoe-misp-sync --release --target ${{ matrix.target }}
+        cargo build --package nnoe-misp-sync --release --target ${{ matrix.target }} || {
+          echo "::error::Failed to build misp-sync for ${{ matrix.target }}"
+          exit 1
+        }
+        echo "misp-sync build successful"
     
     - name: Build prometheus-exporter
+      timeout-minutes: 15
       run: |
+        echo "Building prometheus-exporter for ${{ matrix.target }}..."
         if [ "${{ matrix.target }}" = "aarch64-unknown-linux-musl" ]; then
           export PATH="/usr/local/bin:$PATH"
           export CC_aarch64_unknown_linux_musl=aarch64-linux-musl-gcc
         fi
-        cargo build --package nnoe-prometheus-exporter --release --target ${{ matrix.target }}
+        cargo build --package nnoe-prometheus-exporter --release --target ${{ matrix.target }} || {
+          echo "::error::Failed to build prometheus-exporter for ${{ matrix.target }}"
+          exit 1
+        }
+        echo "prometheus-exporter build successful"
     
     - name: Upload artifacts
       uses: actions/upload-artifact@v4

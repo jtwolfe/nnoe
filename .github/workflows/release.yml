@@ -8,6 +8,7 @@ on:
 jobs:
   release:
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     
     permissions:
       contents: write
@@ -24,15 +25,34 @@ jobs:
         sudo apt-get install -y protobuf-compiler libprotobuf-dev
     
     - name: Build release binaries
+      timeout-minutes: 30
       run: |
-        cargo build --workspace --release
+        echo "Building release binaries..."
+        cargo build --workspace --release || {
+          echo "::error::Build failed"
+          exit 1
+        }
+        echo "Build successful"
     
     - name: Create release archive
+      timeout-minutes: 5
       run: |
+        echo "Creating release archive..."
         mkdir -p release
-        cp target/release/nnoe-agent release/
-        cp target/release/misp-sync release/
-        tar czf nnoe-${{ github.ref_name }}.tar.gz release/
+        cp target/release/nnoe-agent release/ || {
+          echo "::error::nnoe-agent binary not found"
+          exit 1
+        }
+        cp target/release/misp-sync release/ || {
+          echo "::error::misp-sync binary not found"
+          exit 1
+        }
+        tar czf nnoe-${{ github.ref_name }}.tar.gz release/ || {
+          echo "::error::Failed to create archive"
+          exit 1
+        }
+        echo "Release archive created: nnoe-${{ github.ref_name }}.tar.gz"
+        ls -lh nnoe-${{ github.ref_name }}.tar.gz
     
     - name: Create GitHub Release
       uses: softprops/action-gh-release@v2

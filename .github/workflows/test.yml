@@ -9,6 +9,7 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     
     steps:
     - uses: actions/checkout@v4
@@ -35,13 +36,47 @@ jobs:
           ${{ runner.os }}-cargo-
     
     - name: Check formatting
-      run: cargo fmt --check --all
+      timeout-minutes: 5
+      run: |
+        echo "Checking code formatting..."
+        cargo fmt --check --all || {
+          echo "::error::Code formatting check failed. Run 'cargo fmt --all' to fix."
+          exit 1
+        }
+        echo "Formatting check passed"
     
     - name: Run clippy
-      run: cargo clippy --workspace --all-targets -- -D warnings
+      timeout-minutes: 15
+      run: |
+        echo "Running clippy linting..."
+        cargo clippy --workspace --all-targets -- -D warnings || {
+          echo "::error::Clippy found warnings or errors. Fix them before committing."
+          echo ""
+          echo "To see clippy suggestions locally, run:"
+          echo "  cargo clippy --workspace --all-targets"
+          echo ""
+          echo "To auto-fix some issues, run:"
+          echo "  cargo clippy --workspace --all-targets --fix --allow-dirty --allow-staged"
+          exit 1
+        }
+        echo "Clippy check passed"
     
     - name: Run tests
-      run: cargo test --workspace
+      timeout-minutes: 20
+      run: |
+        echo "Running tests..."
+        cargo test --workspace -- --test-threads=1 || {
+          echo "::error::Tests failed"
+          exit 1
+        }
+        echo "All tests passed"
     
     - name: Build all packages
-      run: cargo build --workspace --release
+      timeout-minutes: 15
+      run: |
+        echo "Building all packages..."
+        cargo build --workspace --release || {
+          echo "::error::Build failed"
+          exit 1
+        }
+        echo "Build successful"
