@@ -90,7 +90,7 @@ impl KeaService {
 
     async fn generate_config(&self) -> Result<()> {
         let scopes = self.scopes.read().await;
-        
+
         let kea_config = KeaConfig {
             Dhcp4: KeaDhcp4Config {
                 interfaces_config: KeaInterfacesConfig {
@@ -139,8 +139,10 @@ impl KeaService {
 
         // Write Kea config file
         let config_json = serde_json::to_string_pretty(&kea_config)?;
-        std::fs::write(&self.config_path, config_json)
-            .context(format!("Failed to write Kea config to {:?}", self.config_path))?;
+        std::fs::write(&self.config_path, config_json).context(format!(
+            "Failed to write Kea config to {:?}",
+            self.config_path
+        ))?;
 
         info!("Generated Kea config with {} scopes", scopes.len());
         Ok(())
@@ -148,7 +150,7 @@ impl KeaService {
 
     async fn reload_kea(&self) -> Result<()> {
         info!("Reloading Kea DHCP");
-        
+
         // Try to reload using kea-shell (Kea control channel)
         let output = Command::new("kea-shell")
             .arg("--host")
@@ -182,7 +184,7 @@ impl KeaService {
 
     async fn restart_kea(&self) -> Result<()> {
         info!("Restarting Kea DHCP service");
-        
+
         let output = Command::new("systemctl")
             .arg("restart")
             .arg("kea-dhcp4")
@@ -198,7 +200,11 @@ impl KeaService {
         Ok(())
     }
 
-    async fn parse_scope_from_etcd(&self, scope_id: &str, scope_data: &[u8]) -> Result<KeaScopeData> {
+    async fn parse_scope_from_etcd(
+        &self,
+        scope_id: &str,
+        scope_data: &[u8],
+    ) -> Result<KeaScopeData> {
         #[derive(Deserialize)]
         struct ScopeJson {
             subnet: String,
@@ -219,7 +225,8 @@ impl KeaService {
             .context(format!("Failed to parse scope JSON for {}", scope_id))?;
 
         // Extract DNS servers from options if present
-        let dns_servers = scope_json.options
+        let dns_servers = scope_json
+            .options
             .get("dns-servers")
             .map(|s| s.split(',').map(|s| s.trim().to_string()).collect())
             .unwrap_or_else(|| vec!["8.8.8.8".to_string()]); // Default DNS
@@ -357,7 +364,7 @@ impl ServicePlugin for KeaService {
     async fn init(&mut self, _config: &[u8]) -> Result<()> {
         info!("Initializing Kea DHCP service");
         info!("Config path: {:?}", self.config_path);
-        
+
         if let Some(ref ha_pair_id) = self.config.ha_pair_id {
             info!("HA pair ID: {}", ha_pair_id);
         }
@@ -388,13 +395,13 @@ impl ServicePlugin for KeaService {
                         let mut scopes = self.scopes.write().await;
                         scopes.insert(scope_id.to_string(), scope_data);
                         drop(scopes);
-                        
+
                         // Regenerate Kea config
                         self.generate_config().await?;
-                        
+
                         // Reload Kea
                         self.reload_kea().await?;
-                        
+
                         info!("DHCP scope updated: {}", scope_id);
                     }
                     Err(e) => {
@@ -433,13 +440,9 @@ impl ServicePlugin for KeaService {
             Ok(output) => Ok(output.status.success()),
             Err(_) => {
                 // Fallback: try to check if kea process exists
-                let output = Command::new("pgrep")
-                    .arg("-f")
-                    .arg("kea-dhcp4")
-                    .output();
+                let output = Command::new("pgrep").arg("-f").arg("kea-dhcp4").output();
                 Ok(output.map(|o| o.status.success()).unwrap_or(false))
             }
         }
     }
 }
-

@@ -16,7 +16,10 @@ impl PluginRegistry {
         }
     }
 
-    pub async fn register(&self, plugin: Arc<RwLock<Box<dyn ServicePlugin + Send + Sync>>>) -> Result<()> {
+    pub async fn register(
+        &self,
+        plugin: Arc<RwLock<Box<dyn ServicePlugin + Send + Sync>>>,
+    ) -> Result<()> {
         let name = {
             let guard = plugin.read().await;
             guard.name().to_string()
@@ -28,7 +31,10 @@ impl PluginRegistry {
         Ok(())
     }
 
-    pub async fn get(&self, name: &str) -> Option<Arc<RwLock<Box<dyn ServicePlugin + Send + Sync>>>> {
+    pub async fn get(
+        &self,
+        name: &str,
+    ) -> Option<Arc<RwLock<Box<dyn ServicePlugin + Send + Sync>>>> {
         let plugins = self.plugins.read().await;
         plugins.get(name).map(Arc::clone)
     }
@@ -78,4 +84,3 @@ impl PluginRegistry {
         results
     }
 }
-

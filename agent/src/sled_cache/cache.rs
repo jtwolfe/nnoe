@@ -36,8 +36,10 @@ impl CacheManager {
         // Configure cache size
         db.set_cache_capacity(config.max_size_mb * 1024 * 1024);
 
-        info!("Cache initialized successfully (TTL: {}s, Max size: {}MB)", 
-              config.default_ttl_secs, config.max_size_mb);
+        info!(
+            "Cache initialized successfully (TTL: {}s, Max size: {}MB)",
+            config.default_ttl_secs, config.max_size_mb
+        );
 
         let manager = Self {
             db: Arc::new(db),
@@ -60,30 +62,31 @@ impl CacheManager {
         let ttl_secs = self.config.default_ttl_secs;
         let max_size_bytes = self.config.max_size_mb * 1024 * 1024;
         let sweep_handle = Arc::clone(&self.sweep_handle);
-        
+
         let handle = tokio::spawn(async move {
             let mut interval_timer = interval(Duration::from_secs(60)); // Sweep every 60 seconds
-            
+
             loop {
                 interval_timer.tick().await;
-                
+
                 // Clean expired entries
                 if let Err(e) = Self::sweep_expired(&db, ttl_secs).await {
                     warn!("Error during cache sweep: {}", e);
                 }
-                
+
                 // Check size and evict if needed
                 if let Err(e) = Self::enforce_size_limit(&db, max_size_bytes).await {
                     warn!("Error enforcing cache size limit: {}", e);
                 }
             }
         });
-        
+
         // Store handle
-        tokio::runtime::Handle::try_current()
-            .map(|h| h.spawn(async move {
+        tokio::runtime::Handle::try_current().map(|h| {
+            h.spawn(async move {
                 *sweep_handle.write().await = Some(handle);
-            }));
+            })
+        });
     }
 
     async fn sweep_expired(db: &Arc<Db>, ttl_secs: u64) -> Result<()> {
@@ -91,13 +94,13 @@ impl CacheManager {
             .duration_since(UNIX_EPOCH)
             .unwrap()
             .as_secs();
-        
+
         let mut expired_count = 0;
         let mut keys_to_delete = Vec::new();
 
         for item in db.iter() {
             let (key, value) = item?;
-            
+
             // Try to deserialize as CacheEntry
             if let Ok(entry) = bincode::deserialize::<CacheEntry>(&value) {
                 if now.saturating_sub(entry.timestamp) > ttl_secs {
@@ -141,9 +144,9 @@ impl CacheManager {
             let key_size = key.len() as u64;
             let value_size = value.len() as u64;
             let entry_size = key_size + value_size;
-            
+
             total_size += entry_size;
-            
+
             // Extract timestamp for LRU
             let timestamp = if let Ok(entry) = bincode::deserialize::<CacheEntry>(&value) {
                 entry.timestamp
@@ -156,25 +159,25 @@ impl CacheManager {
                     0
                 }
             };
-            
+
             entries.push((key.to_vec(), entry_size, timestamp));
         }
 
         if total_size > max_size_bytes {
             // Sort by timestamp (oldest first) for LRU eviction
             entries.sort_by_key(|(_, _, ts)| *ts);
-            
+
             let mut evicted = 0;
             for (key, size, _) in entries {
                 if total_size <= max_size_bytes {
                     break;
                 }
-                
+
                 // Also try to delete timestamp key
                 let timestamp_key = format!("{}_ts", String::from_utf8_lossy(&key));
                 db.remove(&timestamp_key)?;
                 db.remove(&key)?;
-                
+
                 total_size -= size;
                 evicted += 1;
             }
@@ -196,7 +199,7 @@ impl CacheManager {
 
     pub fn get(&self, key: &str) -> Result<Option<Vec<u8>>> {
         debug!("Cache get: {}", key);
-        
+
         match self.db.get(key) {
             Ok(Some(value)) => {
                 // Try to deserialize as CacheEntry first
@@ -237,20 +240,19 @@ impl CacheManager {
 
     pub fn put(&self, key: &str, value: &[u8]) -> Result<()> {
         debug!("Cache put: {} ({} bytes)", key, value.len());
-        
+
         let timestamp = Self::get_timestamp();
         let entry = CacheEntry {
             value: value.to_vec(),
             timestamp,
         };
-        
-        let serialized = bincode::serialize(&entry)
-            .context("Failed to serialize cache entry")?;
-        
+
+        let serialized = bincode::serialize(&entry).context("Failed to serialize cache entry")?;
+
         self.db
             .insert(key, serialized)
             .context(format!("Failed to insert key into cache: {}", key))?;
-        
+
         Ok(())
     }
 
@@ -270,12 +272,12 @@ impl CacheManager {
         for item in self.db.scan_prefix(prefix) {
             let (key, value) = item?;
             let key_str = String::from_utf8_lossy(&key).to_string();
-            
+
             // Skip timestamp keys
             if key_str.ends_with("_ts") {
                 continue;
             }
-            
+
             // Deserialize and check TTL
             if let Ok(entry) = bincode::deserialize::<CacheEntry>(&value) {
                 if now.saturating_sub(entry.timestamp) <= self.config.default_ttl_secs {
@@ -313,4 +315,3 @@ impl Drop for CacheManager {
         }
     }
 }
-

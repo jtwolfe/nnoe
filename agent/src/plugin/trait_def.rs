@@ -1,5 +1,5 @@
-use async_trait::async_trait;
 use anyhow::Result;
+use async_trait::async_trait;
 
 #[async_trait]
 pub trait ServicePlugin: Send + Sync {
@@ -21,4 +21,3 @@ pub trait ServicePlugin: Send + Sync {
     /// Health check for the service
     async fn health_check(&self) -> Result<bool>;
 }
-

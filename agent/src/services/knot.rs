@@ -66,10 +66,10 @@ impl KnotService {
 
     async fn generate_config(&self) -> Result<()> {
         let zones = self.zones.read().await;
-        
+
         let listen_str = format!("{}@{}", self.config.listen_address, self.config.listen_port);
         let listen_str_v6 = format!("::@{}", self.config.listen_port);
-        
+
         let knot_config = KnotConfig {
             server: KnotServerConfig {
                 rundir: "/var/lib/knot".to_string(),
@@ -87,8 +87,10 @@ impl KnotService {
 
         // Write Knot config file
         let config_json = serde_json::to_string_pretty(&knot_config)?;
-        std::fs::write(&self.config_path, config_json)
-            .context(format!("Failed to write Knot config to {:?}", self.config_path))?;
+        std::fs::write(&self.config_path, config_json).context(format!(
+            "Failed to write Knot config to {:?}",
+            self.config_path
+        ))?;
 
         info!("Generated Knot config with {} zones", zones.len());
         Ok(())
@@ -105,7 +107,10 @@ impl KnotService {
         let mut zone_content = format!("$ORIGIN {}\n", zone_data.domain);
         zone_content.push_str(&format!("$TTL 3600\n"));
         zone_content.push_str("\n");
-        zone_content.push_str(&format!("@\tIN\tSOA\tns1.{}. admin.{}. (\n", zone_data.domain, zone_data.domain));
+        zone_content.push_str(&format!(
+            "@\tIN\tSOA\tns1.{}. admin.{}. (\n",
+            zone_data.domain, zone_data.domain
+        ));
         zone_content.push_str("\t\t1\t; Serial\n");
         zone_content.push_str("\t\t3600\t; Refresh\n");
         zone_content.push_str("\t\t1800\t; Retry\n");
@@ -121,8 +126,10 @@ impl KnotService {
             ));
         }
 
-        std::fs::write(&zone_data.zone_file_path, zone_content)
-            .context(format!("Failed to write zone file: {:?}", zone_data.zone_file_path))?;
+        std::fs::write(&zone_data.zone_file_path, zone_content).context(format!(
+            "Failed to write zone file: {:?}",
+            zone_data.zone_file_path
+        ))?;
 
         info!("Generated zone file for {}", zone_data.domain);
         Ok(())
@@ -130,11 +137,9 @@ impl KnotService {
 
     async fn reload_knot(&self) -> Result<()> {
         info!("Reloading Knot DNS");
-        
+
         // Try to reload using knotc (Knot control utility)
-        let output = Command::new("knotc")
-            .arg("reload")
-            .output();
+        let output = Command::new("knotc").arg("reload").output();
 
         match output {
             Ok(output) => {
@@ -158,7 +163,7 @@ impl KnotService {
 
     async fn restart_knot(&self) -> Result<()> {
         info!("Restarting Knot DNS service");
-        
+
         let output = Command::new("systemctl")
             .arg("restart")
             .arg("knot")
@@ -174,7 +179,11 @@ impl KnotService {
         Ok(())
     }
 
-    async fn parse_zone_from_etcd(&self, zone_name: &str, zone_data: &[u8]) -> Result<KnotZoneData> {
+    async fn parse_zone_from_etcd(
+        &self,
+        zone_name: &str,
+        zone_data: &[u8],
+    ) -> Result<KnotZoneData> {
         #[derive(Deserialize)]
         struct ZoneJson {
             domain: String,
@@ -185,8 +194,8 @@ impl KnotService {
         let zone_json: ZoneJson = serde_json::from_slice(zone_data)
             .context(format!("Failed to parse zone JSON for {}", zone_name))?;
 
-        let zone_file_path = PathBuf::from(&self.config.zone_dir)
-            .join(format!("{}.zone", zone_name));
+        let zone_file_path =
+            PathBuf::from(&self.config.zone_dir).join(format!("{}.zone", zone_name));
 
         Ok(KnotZoneData {
             domain: zone_json.domain,
@@ -208,8 +217,10 @@ impl ServicePlugin for KnotService {
         info!("Zone directory: {}", self.config.zone_dir);
 
         // Ensure directories exist
-        std::fs::create_dir_all(&self.config.zone_dir)
-            .context(format!("Failed to create zone directory: {}", self.config.zone_dir))?;
+        std::fs::create_dir_all(&self.config.zone_dir).context(format!(
+            "Failed to create zone directory: {}",
+            self.config.zone_dir
+        ))?;
 
         if let Some(parent) = self.config_path.parent() {
             std::fs::create_dir_all(parent)
@@ -231,18 +242,18 @@ impl ServicePlugin for KnotService {
                     Ok(zone_data) => {
                         // Generate zone file
                         self.generate_zone_file(&zone_data).await?;
-                        
+
                         // Update zones map
                         let mut zones = self.zones.write().await;
                         zones.insert(zone_name.to_string(), zone_data);
-                        
+
                         // Regenerate Knot config
                         drop(zones);
                         self.generate_config().await?;
-                        
+
                         // Reload Knot
                         self.reload_knot().await?;
-                        
+
                         info!("Zone updated: {}", zone_name);
                     }
                     Err(e) => {
@@ -281,13 +292,9 @@ impl ServicePlugin for KnotService {
             Ok(output) => Ok(output.status.success()),
             Err(_) => {
                 // Fallback: try to check if knot process exists
-                let output = Command::new("pgrep")
-                    .arg("-f")
-                    .arg("knotd")
-                    .output();
+                let output = Command::new("pgrep").arg("-f").arg("knotd").output();
                 Ok(output.map(|o| o.status.success()).unwrap_or(false))
             }
         }
     }
 }
-

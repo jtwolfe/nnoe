@@ -22,20 +22,18 @@ jobs:
         sudo apt-get update
         sudo apt-get install -y protobuf-compiler libprotobuf-dev
     
-    - name: Install Docker Compose
-      run: |
-        sudo curl -L "https://github.com/docker/compose/releases/download/v2.20.0/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
-        sudo chmod +x /usr/local/bin/docker-compose
+    # Docker Compose v2 is pre-installed on GitHub Actions runners
+    # No need to install separately
     
     - name: Start test environment
       run: |
         cd testing/integration/e2e
-        docker-compose up -d
+        docker compose up -d
     
     - name: Wait for services
       run: |
         sleep 10
-        docker-compose -f testing/integration/e2e/docker-compose.yml ps
+        docker compose -f testing/integration/e2e/docker-compose.yml ps
     
     - name: Run E2E tests
       run: |
@@ -44,9 +42,9 @@ jobs:
     - name: Collect logs on failure
       if: failure()
       run: |
-        docker-compose -f testing/integration/e2e/docker-compose.yml logs
+        docker compose -f testing/integration/e2e/docker-compose.yml logs
     
     - name: Cleanup
       if: always()
       run: |
-        docker-compose -f testing/integration/e2e/docker-compose.yml down -v
+        docker compose -f testing/integration/e2e/docker-compose.yml down -v

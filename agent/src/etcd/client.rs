@@ -23,17 +23,19 @@ impl EtcdClient {
         // Configure TLS if provided
         if let Some(ref tls_config) = config.tls {
             info!("Configuring TLS for etcd connection");
-            
+
             // Load CA certificate
-            let ca_cert_data = fs::read_to_string(&tls_config.ca_cert)
-                .with_context(|| format!("Failed to read CA certificate from {}", tls_config.ca_cert))?;
+            let ca_cert_data = fs::read_to_string(&tls_config.ca_cert).with_context(|| {
+                format!("Failed to read CA certificate from {}", tls_config.ca_cert)
+            })?;
             let ca_certs = rustls_pemfile::certs(&mut ca_cert_data.as_bytes())
                 .collect::<Result<Vec<_>, _>>()
                 .context("Failed to parse CA certificate")?;
 
             // Load client certificate
-            let client_cert_data = fs::read_to_string(&tls_config.cert)
-                .with_context(|| format!("Failed to read client certificate from {}", tls_config.cert))?;
+            let client_cert_data = fs::read_to_string(&tls_config.cert).with_context(|| {
+                format!("Failed to read client certificate from {}", tls_config.cert)
+            })?;
             let client_certs = rustls_pemfile::certs(&mut client_cert_data.as_bytes())
                 .collect::<Result<Vec<_>, _>>()
                 .context("Failed to parse client certificate")?;
@@ -51,14 +53,13 @@ impl EtcdClient {
             // Build TLS configuration
             let mut root_cert_store = rustls::RootCertStore::empty();
             for cert in ca_certs {
-                root_cert_store.add(cert)
+                root_cert_store
+                    .add(cert)
                     .context("Failed to add CA certificate to trust store")?;
             }
 
-            let client_cert_chain: Vec<rustls::Certificate> = client_certs
-                .into_iter()
-                .map(rustls::Certificate)
-                .collect();
+            let client_cert_chain: Vec<rustls::Certificate> =
+                client_certs.into_iter().map(rustls::Certificate).collect();
 
             let client_key = rustls::PrivateKey(client_key);
 
@@ -122,7 +123,12 @@ impl EtcdClient {
         debug!("Listing prefix: {}", full_prefix);
 
         let mut client = self.client.kv_client();
-        let resp = client.get(full_prefix, Some(etcd_client::GetOptions::new().with_prefix())).await?;
+        let resp = client
+            .get(
+                full_prefix,
+                Some(etcd_client::GetOptions::new().with_prefix()),
+            )
+            .await?;
 
         let mut results = Vec::new();
         for kv in resp.kvs() {
@@ -140,10 +146,7 @@ impl EtcdClient {
 
         let mut client = self.client.watch_client();
         let (_, stream) = client
-            .watch(
-                full_prefix,
-                Some(WatchOptions::new().with_prefix()),
-            )
+            .watch(full_prefix, Some(WatchOptions::new().with_prefix()))
             .await?;
 
         Ok(stream)
@@ -157,4 +160,3 @@ impl EtcdClient {
         }
     }
 }
-

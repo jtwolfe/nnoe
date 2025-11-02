@@ -1,7 +1,7 @@
 #[cfg(test)]
 mod tests {
-    use nnoe_agent::sled_cache::cache::CacheManager;
     use nnoe_agent::config::CacheConfig;
+    use nnoe_agent::sled_cache::cache::CacheManager;
     use std::time::Duration;
     use tokio::time::sleep;
 
@@ -13,12 +13,12 @@ mod tests {
             max_size_mb: 10,
         };
         let cache = CacheManager::new(&config).unwrap();
-        
+
         cache.put("test-key", b"test-value").unwrap();
         let value = cache.get("test-key").unwrap();
-        
+
         assert_eq!(value, Some(b"test-value".to_vec()));
-        
+
         // Cleanup
         std::fs::remove_file("/tmp/test-cache-put-get").ok();
     }
@@ -31,18 +31,18 @@ mod tests {
             max_size_mb: 10,
         };
         let cache = CacheManager::new(&config).unwrap();
-        
+
         cache.put("test-key", b"test-value").unwrap();
-        
+
         // Value should be available immediately
         assert!(cache.get("test-key").unwrap().is_some());
-        
+
         // Wait for TTL to expire
         sleep(Duration::from_secs(2)).await;
-        
+
         // Value should be expired
         assert!(cache.get("test-key").unwrap().is_none());
-        
+
         // Cleanup
         std::fs::remove_file("/tmp/test-cache-ttl").ok();
     }
@@ -55,12 +55,12 @@ mod tests {
             max_size_mb: 10,
         };
         let cache = CacheManager::new(&config).unwrap();
-        
+
         cache.put("test-key", b"test-value").unwrap();
         cache.delete("test-key").unwrap();
-        
+
         assert!(cache.get("test-key").unwrap().is_none());
-        
+
         // Cleanup
         std::fs::remove_file("/tmp/test-cache-delete").ok();
     }
@@ -73,14 +73,14 @@ mod tests {
             max_size_mb: 10,
         };
         let cache = CacheManager::new(&config).unwrap();
-        
+
         cache.put("prefix/key1", b"value1").unwrap();
         cache.put("prefix/key2", b"value2").unwrap();
         cache.put("other/key3", b"value3").unwrap();
-        
+
         let results = cache.list_prefix("prefix/").unwrap();
         assert_eq!(results.len(), 2);
-        
+
         // Cleanup
         std::fs::remove_file("/tmp/test-cache-list").ok();
     }
@@ -93,17 +93,16 @@ mod tests {
             max_size_mb: 10,
         };
         let cache = CacheManager::new(&config).unwrap();
-        
+
         cache.put("key1", b"value1").unwrap();
         cache.put("key2", b"value2").unwrap();
-        
+
         cache.clear().unwrap();
-        
+
         assert!(cache.get("key1").unwrap().is_none());
         assert!(cache.get("key2").unwrap().is_none());
-        
+
         // Cleanup
         std::fs::remove_file("/tmp/test-cache-clear").ok();
     }
 }
-

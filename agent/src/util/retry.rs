@@ -49,13 +49,16 @@ where
         match operation().await {
             Ok(result) => {
                 if attempt > 0 {
-                    debug!("Operation {} succeeded after {} retries", operation_name, attempt);
+                    debug!(
+                        "Operation {} succeeded after {} retries",
+                        operation_name, attempt
+                    );
                 }
                 return Ok(result);
             }
             Err(e) => {
                 last_error = Some(e);
-                
+
                 if attempt < config.max_retries {
                     warn!(
                         "Operation {} failed (attempt {}/{}), retrying in {:?}: {}",
@@ -65,9 +68,9 @@ where
                         delay,
                         last_error.as_ref().unwrap()
                     );
-                    
+
                     sleep(delay).await;
-                    
+
                     // Exponential backoff
                     let new_delay_ms = (delay.as_millis() as f64 * config.multiplier) as u64;
                     delay = Duration::from_millis(new_delay_ms.min(config.max_delay_ms));
@@ -82,8 +85,9 @@ where
         }
     }
 
-    Err(last_error
-        .unwrap()
-        .context(format!("Operation {} failed after {} retries", operation_name, config.max_retries + 1)))
+    Err(last_error.unwrap().context(format!(
+        "Operation {} failed after {} retries",
+        operation_name,
+        config.max_retries + 1
+    )))
 }
-

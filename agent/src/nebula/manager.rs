@@ -1,7 +1,10 @@
 use crate::config::NebulaConfig;
 use anyhow::{Context, Result};
 use std::process::{Child, Command, Stdio};
-use std::sync::{Arc, atomic::{AtomicBool, Ordering}};
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Arc,
+};
 use tokio::sync::RwLock;
 use tracing::{error, info, warn};
 
@@ -68,7 +71,7 @@ impl NebulaManager {
         let restart_count_clone = Arc::clone(&self.restart_count);
         let config_clone = self.config.clone();
         let max_restarts = self.max_restarts;
-        
+
         tokio::spawn(async move {
             Self::monitor_process_with_restart(
                 process_clone,
@@ -76,7 +79,8 @@ impl NebulaManager {
                 restart_count_clone,
                 config_clone,
                 max_restarts,
-            ).await;
+            )
+            .await;
         });
 
         Ok(())
@@ -88,12 +92,12 @@ impl NebulaManager {
         if let Some(mut child) = process_guard.take() {
             info!("Stopping Nebula process");
             self.is_running_flag.store(false, Ordering::Release);
-            
+
             // Try graceful shutdown first
             if let Err(e) = child.kill() {
                 warn!("Failed to kill Nebula process gracefully: {}", e);
             }
-            
+
             // Wait for process to exit (with timeout)
             tokio::time::timeout(
                 tokio::time::Duration::from_secs(5),
@@ -102,7 +106,7 @@ impl NebulaManager {
             .await
             .context("Timeout waiting for Nebula to stop")?
             .context("Failed to wait for Nebula process")??;
-            
+
             info!("Nebula process stopped");
         }
 
@@ -137,19 +141,19 @@ impl NebulaManager {
                         error!("Nebula process exited with status: {:?}", status);
                         *process_guard = None;
                         is_running_flag.store(false, Ordering::Release);
-                        
+
                         // Check restart count
                         let mut count = restart_count.lock().unwrap();
                         if *count < max_restarts {
                             *count += 1;
                             warn!("Restarting Nebula (attempt {}/{})", *count, max_restarts);
-                            
+
                             drop(process_guard);
-                            
+
                             // Exponential backoff
                             let delay = std::cmp::min(2u64.pow(*count as u32), 60);
                             tokio::time::sleep(tokio::time::Duration::from_secs(delay)).await;
-                            
+
                             // Attempt restart
                             if let Some(ref config_path) = config.config_path {
                                 match Self::attempt_restart(config_path).await {
@@ -195,7 +199,7 @@ impl NebulaManager {
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
-        
+
         cmd.spawn().context("Failed to restart Nebula process")
     }
 }
@@ -220,4 +224,3 @@ impl Drop for NebulaManager {
         }
     }
 }
-

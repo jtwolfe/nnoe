@@ -41,9 +41,9 @@ impl CerbosService {
         principal_roles: Vec<String>,
     ) -> Result<bool> {
         let client_guard = self.client.read().await;
-        let client = client_guard.as_ref().ok_or_else(|| {
-            anyhow::anyhow!("Cerbos client not initialized")
-        })?;
+        let client = client_guard
+            .as_ref()
+            .ok_or_else(|| anyhow::anyhow!("Cerbos client not initialized"))?;
 
         let request = tonic::Request::new(CheckResourcesRequest {
             request_id: format!("nnoe-{}", uuid::Uuid::new_v4()),
@@ -117,12 +117,12 @@ impl ServicePlugin for CerbosService {
 
     async fn init(&mut self, _config: &[u8]) -> Result<()> {
         info!("Initializing Cerbos service at {}", self.config.endpoint);
-        
+
         // Initialize gRPC client connection
         self.ensure_client_connected().await?;
-        
+
         info!("Cerbos service initialized successfully");
-        
+
         Ok(())
     }
 
@@ -165,7 +165,16 @@ impl ServicePlugin for CerbosService {
 
         // Perform a simple policy check to verify service is responding
         // Using a default resource/action that should exist
-        match self.check_policy("dns_query", "health", "allow", "health-check", vec!["admin".to_string()]).await {
+        match self
+            .check_policy(
+                "dns_query",
+                "health",
+                "allow",
+                "health-check",
+                vec!["admin".to_string()],
+            )
+            .await
+        {
             Ok(_) => Ok(true),
             Err(e) => {
                 warn!("Cerbos health check policy test failed: {}", e);
@@ -174,4 +183,3 @@ impl ServicePlugin for CerbosService {
         }
     }
 }
-

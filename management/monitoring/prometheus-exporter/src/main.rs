@@ -64,7 +64,7 @@ async fn handle_request(
             let encoder = TextEncoder::new();
             let metric_families = metrics_collector.registry.gather();
             let mut buffer = Vec::new();
-            
+
             if let Err(e) = encoder.encode(&metric_families, &mut buffer) {
                 warn!("Error encoding metrics: {}", e);
                 return Ok(Response::builder()
@@ -79,18 +79,13 @@ async fn handle_request(
                 .body(Full::new(Bytes::from(buffer)))
                 .unwrap())
         }
-        (&hyper::Method::GET, "/health") => {
-            Ok(Response::builder()
-                .status(StatusCode::OK)
-                .body(Full::new(Bytes::from("OK")))
-                .unwrap())
-        }
-        _ => {
-            Ok(Response::builder()
-                .status(StatusCode::NOT_FOUND)
-                .body(Full::new(Bytes::from("Not Found")))
-                .unwrap())
-        }
+        (&hyper::Method::GET, "/health") => Ok(Response::builder()
+            .status(StatusCode::OK)
+            .body(Full::new(Bytes::from("OK")))
+            .unwrap()),
+        _ => Ok(Response::builder()
+            .status(StatusCode::NOT_FOUND)
+            .body(Full::new(Bytes::from("Not Found")))
+            .unwrap()),
     }
 }
-
