@@ -1,5 +1,6 @@
 use crate::config::CacheConfig;
 use anyhow::{Context, Result};
+use serde::{Deserialize, Serialize};
 use sled::Db;
 use std::path::Path;
 use std::sync::Arc;
@@ -8,7 +9,7 @@ use tokio::sync::RwLock;
 use tokio::time::{interval, Duration};
 use tracing::{debug, info, warn};
 
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize)]
 struct CacheEntry {
     value: Vec<u8>,
     timestamp: u64,

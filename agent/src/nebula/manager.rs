@@ -143,17 +143,25 @@ impl NebulaManager {
                         is_running_flag.store(false, Ordering::Release);
 
                         // Check restart count
-                        let mut count = restart_count.lock().unwrap();
-                        if *count < max_restarts {
-                            *count += 1;
-                            warn!("Restarting Nebula (attempt {}/{})", *count, max_restarts);
+                        let should_restart = {
+                            let mut count = restart_count.lock().unwrap();
+                            if *count < max_restarts {
+                                *count += 1;
+                                let current_count = *count;
+                                warn!("Restarting Nebula (attempt {}/{})", current_count, max_restarts);
+                                drop(count); // Drop guard before await
+                                drop(process_guard);
 
-                            drop(process_guard);
+                                // Exponential backoff
+                                let delay = std::cmp::min(2u64.pow(current_count as u32), 60);
+                                tokio::time::sleep(tokio::time::Duration::from_secs(delay)).await;
+                                true
+                            } else {
+                                false
+                            }
+                        };
 
-                            // Exponential backoff
-                            let delay = std::cmp::min(2u64.pow(*count as u32), 60);
-                            tokio::time::sleep(tokio::time::Duration::from_secs(delay)).await;
-
+                        if should_restart {
                             // Attempt restart
                             if let Some(ref config_path) = config.config_path {
                                 match Self::attempt_restart(config_path).await {
@@ -161,7 +169,10 @@ impl NebulaManager {
                                         let mut guard = process.write().await;
                                         *guard = Some(new_child);
                                         is_running_flag.store(true, Ordering::Release);
-                                        *count = 0; // Reset on successful restart
+                                        {
+                                            let mut count = restart_count.lock().unwrap();
+                                            *count = 0; // Reset on successful restart
+                                        }
                                         info!("Nebula process restarted successfully");
                                     }
                                     Err(e) => {

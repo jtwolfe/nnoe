@@ -47,11 +47,12 @@ struct LynisItem {
 
 impl LynisService {
     pub fn new(config: LynisServiceConfig, node_id: Option<String>) -> Self {
+        let audit_interval = Duration::from_secs(config.audit_interval_secs);
         Self {
             config,
             node_id: Arc::new(RwLock::new(node_id)),
             last_audit: Arc::new(RwLock::new(None)),
-            audit_interval: Duration::from_secs(config.audit_interval_secs),
+            audit_interval,
             etcd_client: Arc::new(RwLock::new(None)),
         }
     }
