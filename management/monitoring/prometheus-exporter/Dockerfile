@@ -1,6 +1,6 @@
 # Multi-stage build for NNOE Prometheus Exporter
 
-FROM rust:stable as builder
+FROM rust:latest as builder
 
 WORKDIR /app
 
