@@ -132,27 +132,26 @@ impl NebulaManager {
             // Check if process exists in the guard
             let process_guard = handle.block_on(async { self.process.read().await });
             if let Some(child) = process_guard.as_ref() {
-                    let pid = child.id();
+                let pid = child.id();
 
-                    // Check if process exists by attempting signal 0 (non-destructive check)
-                    use nix::sys::signal::kill;
-                    use nix::unistd::Pid;
-                    // Convert u32 PID to i32 for nix
-                    if let Ok(pid_i32) = pid.try_into() {
-                        match kill(Pid::from_raw(pid_i32), None) {
-                            Ok(_) => return true, // Process exists and is responsive
-                            Err(_) => {
-                                // Process doesn't exist, update flag
-                                self.is_running_flag.store(false, Ordering::Release);
-                                return false;
-                            }
+                // Check if process exists by attempting signal 0 (non-destructive check)
+                use nix::sys::signal::kill;
+                use nix::unistd::Pid;
+                // Convert u32 PID to i32 for nix
+                if let Ok(pid_i32) = pid.try_into() {
+                    match kill(Pid::from_raw(pid_i32), None) {
+                        Ok(_) => return true, // Process exists and is responsive
+                        Err(_) => {
+                            // Process doesn't exist, update flag
+                            self.is_running_flag.store(false, Ordering::Release);
+                            return false;
                         }
                     }
-                } else {
-                    // No process handle, update flag
-                    self.is_running_flag.store(false, Ordering::Release);
-                    return false;
                 }
+            } else {
+                // No process handle, update flag
+                self.is_running_flag.store(false, Ordering::Release);
+                return false;
             }
         }
 
