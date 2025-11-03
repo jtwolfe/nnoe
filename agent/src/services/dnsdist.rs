@@ -316,7 +316,7 @@ impl DnsdistService {
             match_expr: Option<MatchExpr>,
         }
 
-        #[derive(Debug, Deserialize)]
+        #[derive(Debug, Deserialize, Serialize)]
         struct MatchExpr {
             expr: Option<String>,
         }

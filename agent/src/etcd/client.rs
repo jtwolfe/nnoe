@@ -72,7 +72,7 @@ impl EtcdClient {
             // Apply TLS configuration to ConnectOptions
             // etcd-client 0.11 uses tonic for gRPC, which accepts rustls::ClientConfig
             // Wrapped in Arc for shared ownership across connections
-            connect_options = connect_options.with_tls(Arc::new(rustls_config));
+            connect_options = connect_options.with_tls_config(Arc::new(rustls_config));
             info!("TLS configuration applied to etcd client");
         }
 
