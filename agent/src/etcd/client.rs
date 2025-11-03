@@ -38,18 +38,24 @@ impl EtcdClient {
 
             // Build TlsOptions (which is tonic::transport::ClientTlsConfig)
             // Convert PEM certificates to tonic types
-            let ca_cert = Certificate::from_pem(ca_cert_data.as_bytes())
-                .map_err(|e| anyhow::anyhow!("Failed to convert CA certificate: {}", e))?;
+            // Note: from_pem returns the type directly, not a Result
+            // Wrap in catch_unwind to handle potential panics from invalid PEM data
+            let ca_cert = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                Certificate::from_pem(ca_cert_data.as_bytes())
+            }))
+            .map_err(|_| {
+                anyhow::anyhow!("Failed to convert CA certificate: invalid PEM data or certificate format")
+            })?;
 
             // Identity::from_pem requires separate cert and key arguments
-            let identity =
+            let identity = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                 Identity::from_pem(client_cert_data.as_bytes(), client_key_data.as_bytes())
-                    .map_err(|e| {
-                        anyhow::anyhow!(
-                            "Failed to create Identity from client certificate and key: {}",
-                            e
-                        )
-                    })?;
+            }))
+            .map_err(|_| {
+                anyhow::anyhow!(
+                    "Failed to create Identity from client certificate and key: invalid PEM data or format"
+                )
+            })?;
 
             let tls_options = TlsOptions::new().ca_certificate(ca_cert).identity(identity);
 
