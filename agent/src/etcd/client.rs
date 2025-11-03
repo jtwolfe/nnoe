@@ -1,6 +1,6 @@
 use crate::config::EtcdConfig;
 use anyhow::{Context, Result};
-use etcd_client::{Client, ConnectOptions, WatchOptions, Certificate, Identity, TlsOptions};
+use etcd_client::{Certificate, Client, ConnectOptions, Identity, TlsOptions, WatchOptions};
 use std::fs;
 use tracing::{debug, info};
 
@@ -39,17 +39,19 @@ impl EtcdClient {
             // Build TlsOptions (which is tonic::transport::ClientTlsConfig)
             // Convert PEM certificates to tonic types
             let ca_cert = Certificate::from_pem(ca_cert_data.as_bytes())
-                .context("Failed to convert CA certificate to tonic Certificate")?;
-            
-            // Combine client cert and key into PEM format for Identity
-            let identity_pem = format!("{}\n{}", client_cert_data, client_key_data);
-            let identity = Identity::from_pem(identity_pem.as_bytes())
-                .context("Failed to create Identity from client certificate and key")?;
-            
+                .map_err(|e| anyhow::anyhow!("Failed to convert CA certificate: {}", e))?;
+
+            // Identity::from_pem requires separate cert and key arguments
+            let identity = Identity::from_pem(
+                client_cert_data.as_bytes(),
+                client_key_data.as_bytes(),
+            )
+            .map_err(|e| anyhow::anyhow!("Failed to create Identity from client certificate and key: {}", e))?;
+
             let tls_options = TlsOptions::new()
                 .ca_certificate(ca_cert)
                 .identity(identity);
-            
+
             // Apply TLS configuration to ConnectOptions
             // etcd-client 0.11 uses tonic for gRPC, which uses ClientTlsConfig
             connect_options = connect_options.with_tls(tls_options);

@@ -76,6 +76,12 @@ jobs:
         fi
       continue-on-error: true
     
+    - name: Install protobuf compiler
+      timeout-minutes: 5
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y protobuf-compiler libprotobuf-dev
+    
     - name: Run cargo clippy security lints
       timeout-minutes: 15
       run: |

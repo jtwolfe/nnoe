@@ -273,7 +273,7 @@ impl LynisService {
                         Ok(output) if output.status.success() => {
                             // Parse the report file
                             // Create a temporary service instance with minimal setup
-                            let mut service =
+                            let service =
                                 LynisService::new(config.clone(), Some(node_id_str.clone()));
                             // Set the node_id for parsing
                             {

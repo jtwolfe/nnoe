@@ -188,8 +188,8 @@ impl KnotService {
 
         // Generate new keys with different filenames
         let key_dir = PathBuf::from("/var/lib/knot/keys");
-        let new_ksk_path = key_dir.join(format!("{}.ksk.new.key", zone_name));
-        let new_zsk_path = key_dir.join(format!("{}.zsk.new.key", zone_name));
+        let _new_ksk_path = key_dir.join(format!("{}.ksk.new.key", zone_name));
+        let _new_zsk_path = key_dir.join(format!("{}.zsk.new.key", zone_name));
 
         // Generate new KSK
         let ksk_output = Command::new("keymgr")
@@ -451,7 +451,7 @@ impl KnotService {
     }
 
     /// Apply dynamic update (RFC 2136) to a zone
-    async fn apply_dynamic_update(&self, zone_name: &str, update_data: &str) -> Result<()> {
+    async fn apply_dynamic_update(&self, zone_name: &str, _update_data: &str) -> Result<()> {
         info!("Applying dynamic update to zone: {}", zone_name);
 
         // Knot supports dynamic updates via knotc zone-commit
@@ -542,7 +542,7 @@ impl ServicePlugin for KnotService {
                 match self.parse_zone_from_etcd(zone_name, value).await {
                     Ok(zone_data) => {
                         // Generate DNSSEC keys if not already present
-                        let key_info = {
+                        let _key_info = {
                             let dnssec_keys = self.dnssec_keys.read().await;
                             if !dnssec_keys.contains_key(&zone_data.domain) {
                                 drop(dnssec_keys);
