@@ -42,15 +42,16 @@ impl EtcdClient {
                 .map_err(|e| anyhow::anyhow!("Failed to convert CA certificate: {}", e))?;
 
             // Identity::from_pem requires separate cert and key arguments
-            let identity = Identity::from_pem(
-                client_cert_data.as_bytes(),
-                client_key_data.as_bytes(),
-            )
-            .map_err(|e| anyhow::anyhow!("Failed to create Identity from client certificate and key: {}", e))?;
+            let identity =
+                Identity::from_pem(client_cert_data.as_bytes(), client_key_data.as_bytes())
+                    .map_err(|e| {
+                        anyhow::anyhow!(
+                            "Failed to create Identity from client certificate and key: {}",
+                            e
+                        )
+                    })?;
 
-            let tls_options = TlsOptions::new()
-                .ca_certificate(ca_cert)
-                .identity(identity);
+            let tls_options = TlsOptions::new().ca_certificate(ca_cert).identity(identity);
 
             // Apply TLS configuration to ConnectOptions
             // etcd-client 0.11 uses tonic for gRPC, which uses ClientTlsConfig
