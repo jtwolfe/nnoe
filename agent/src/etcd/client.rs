@@ -44,7 +44,9 @@ impl EtcdClient {
                 Certificate::from_pem(ca_cert_data.as_bytes())
             }))
             .map_err(|_| {
-                anyhow::anyhow!("Failed to convert CA certificate: invalid PEM data or certificate format")
+                anyhow::anyhow!(
+                    "Failed to convert CA certificate: invalid PEM data or certificate format"
+                )
             })?;
 
             // Identity::from_pem requires separate cert and key arguments
